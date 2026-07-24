@@ -1,0 +1,4 @@
+{
+  "operation": "update",
+  "find_by": "ROWID"
+}

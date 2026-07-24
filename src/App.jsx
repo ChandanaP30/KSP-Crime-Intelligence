@@ -1,0 +1,1492 @@
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { MapContainer, TileLayer, CircleMarker, Popup } from 'react-leaflet';
+import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import ForceGraph2D from 'react-force-graph-2d';
+import 'leaflet/dist/leaflet.css';
+import './App.css';
+import 'leaflet.markercluster/dist/MarkerCluster.css';
+import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
+import 'leaflet.markercluster';
+import L from 'leaflet';
+import { useMap } from 'react-leaflet';
+import { GeoJSON } from 'react-leaflet';
+import karnatakaDistricts from './assets/karnataka_districts.json';
+import { GEOJSON_TO_DB_NAME } from './utils/districtNameMap';
+import { useLangStrings } from './translations';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
+
+const FUNCTIONS_BASE = 'https://ksp-fir-platform-60073928681.development.catalystserverless.in/server';
+
+const STATUS_COLORS = {
+  'Under Investigation': '#D9A441',
+  'Chargesheeted': '#4A7FB5',
+  'Closed': '#5FA88C'
+};
+
+const KARNATAKA_BOUNDS = [
+  [11.5, 74.0],
+  [18.5, 78.6]
+];
+
+// Risk-tier colors used by the Criminal Network graph and legend
+const RISK_HIGH = '#D94F4F';   // red   - 80-100
+const RISK_MED = '#E08A3E';    // orange - 50-79
+const RISK_LOW = '#5FA88C';    // green  - <50
+const CASE_NODE_COLOR = '#4A7FB5';
+const FADE_COLOR = 'rgba(139, 150, 170, 0.12)';
+const FADE_LINK_COLOR = 'rgba(139, 150, 170, 0.06)';
+
+const AI_STAGES = [
+  'Connecting to AI...',
+  'Searching crime database...',
+  'Analyzing patterns...',
+  'Generating recommendations...'
+];
+
+function getRiskColor(riskScore) {
+  if (riskScore >= 80) return RISK_HIGH;
+  if (riskScore >= 50) return RISK_MED;
+  return RISK_LOW;
+}
+
+const DB_TO_GEOJSON_NAME = Object.fromEntries(
+  Object.entries(GEOJSON_TO_DB_NAME).map(([geoName, dbName]) => [dbName, geoName])
+);
+
+function ClusterLayer({ cases }) {
+  const map = useMap();
+
+  useEffect(() => {
+    const clusterGroup = L.markerClusterGroup({
+      maxClusterRadius: 60,
+      spiderfyOnMaxZoom: true
+    });
+
+    cases.forEach(c => {
+      if (!c.latitude || !c.longitude) return;
+      const marker = L.circleMarker([c.latitude, c.longitude], {
+        radius: 8,
+        color: STATUS_COLORS[c.status] || '#8B96AA',
+        fillColor: STATUS_COLORS[c.status] || '#8B96AA',
+        fillOpacity: 0.7
+      });
+      marker.bindPopup(
+        `<div class="mono">${c.firNumber}</div><div>${c.crimeType}</div><div>${c.status}</div><div>${c.dateOfFIR}</div>`
+      );
+      clusterGroup.addLayer(marker);
+    });
+
+    map.addLayer(clusterGroup);
+
+    return () => {
+      map.removeLayer(clusterGroup);
+    };
+  }, [cases, map]);
+
+  return null;
+}
+function DistrictBoundaries({ selectedDistrictName }) {
+  const map = useMap();
+
+  const style = (feature) => {
+    const isSelected = feature.properties.district_name === selectedDistrictName;
+    return {
+      color: isSelected ? '#D9A441' : '#4A7FB5',
+      weight: isSelected ? 3 : 1,
+      fillOpacity: isSelected ? 0.15 : 0.02,
+      fillColor: isSelected ? '#D9A441' : '#4A7FB5'
+    };
+  };
+
+  const onEachFeature = (feature, layer) => {
+    if (feature.properties.district_name === selectedDistrictName) {
+      map.fitBounds(layer.getBounds(), { padding: [20, 20] });
+    }
+  };
+
+  return (
+    <GeoJSON
+      key={selectedDistrictName || 'all'}
+      data={karnatakaDistricts}
+      style={style}
+      onEachFeature={onEachFeature}
+    />
+  );
+}
+function CctvLayer({ cctvData, showCctv, showRecommendations, activeCameras, showActiveCameras }) { 
+ const map = useMap();
+
+  useEffect(() => {
+    const layerGroup = L.layerGroup();
+
+    const recommendIcon = L.divIcon({
+      html: `<div style="position:relative;">
+        <div style="background:#E05A2B;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;border:2px solid white;box-shadow:0 0 4px rgba(0,0,0,0.5);">
+          <span style="font-size:15px;">ðŸ“·</span>
+        </div>
+        <div style="position:absolute;bottom:-3px;right:-3px;background:white;border-radius:50%;width:15px;height:15px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:bold;color:#E05A2B;line-height:1;">+</div>
+      </div>`,
+      className: 'cctv-recommend-icon',
+      iconSize: L.point(30, 30),
+      iconAnchor: [15, 15]
+    });
+
+    const recommendClusterGroup = L.markerClusterGroup({
+      maxClusterRadius: 35,
+      spiderfyOnMaxZoom: true,
+      disableClusteringAtZoom: 11,
+      iconCreateFunction: function(cluster) {
+        const count = cluster.getChildCount();
+        return L.divIcon({
+          html: `<div style="background:#C1443C;border-radius:50%;width:38px;height:38px;display:flex;align-items:center;justify-content:center;color:white;font-size:13px;font-weight:bold;border:2px solid white;">${count}</div>`,
+          className: 'recommend-cluster-icon',
+          iconSize: L.point(36, 36)
+        });
+      }
+    });
+
+    if (showRecommendations && cctvData?.topRecommendations) {
+      cctvData.topRecommendations.forEach(u => {
+        const marker = L.marker([u.centroidLat, u.centroidLon], { icon: recommendIcon });
+        marker.bindPopup(
+          `<div class="mono" style="font-weight:bold;">CCTV Recommended - ${u.priority} Priority</div><div>Install ${u.recommendedCameraCount} camera(s)</div><div>Risk Score: ${u.riskScore}/100</div><div>Cases in area: ${u.caseCount} (${u.highSeverityCount} high-severity)</div><div>Current cameras: ${u.cameraCount}</div><div style="margin-top:4px;font-style:italic;">${u.reason}</div>`
+        );
+        recommendClusterGroup.addLayer(marker);
+      });
+    }
+
+    const cameraClusterGroup = L.markerClusterGroup({
+      maxClusterRadius: 35,
+      spiderfyOnMaxZoom: true,
+      disableClusteringAtZoom: 11,
+     iconCreateFunction: function(cluster) {
+        const count = cluster.getChildCount();
+        return L.divIcon({
+          html: `<div style="background:#2C3E50;border-radius:50%;width:38px;height:38px;display:flex;align-items:center;justify-content:center;color:white;font-size:13px;font-weight:bold;border:2px solid white;">${count}</div>`,
+          className: 'camera-cluster-icon',
+          iconSize: L.point(36, 36)
+        });
+      }
+    });
+
+    const cameraIcon = L.divIcon({
+      html: `<div style="background:#2C3E50;border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;border:2px solid white;box-shadow:0 0 3px rgba(0,0,0,0.6);">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="white">
+          <path d="M17 10.5V7a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h12a1 1 0 001-1v-3.5l4 4v-11l-4 4z"/>
+        </svg>
+      </div>`,
+      className: 'camera-marker-icon',
+      iconSize: L.point(22, 22),
+      iconAnchor: [11, 11]
+    });
+
+    if (showActiveCameras && activeCameras?.cameras) {
+      activeCameras.cameras.forEach(cam => {
+        const marker = L.marker([cam.latitude, cam.longitude], { icon: cameraIcon });
+        marker.bindPopup(
+          `<div class="mono">${cam.cameraName}</div><div>Status: ${cam.status}</div>`
+        );
+        cameraClusterGroup.addLayer(marker);
+      });
+    }
+
+    map.addLayer(layerGroup);
+    map.addLayer(cameraClusterGroup);
+    map.addLayer(recommendClusterGroup);
+
+    return () => {
+      map.removeLayer(layerGroup);
+      map.removeLayer(cameraClusterGroup);
+      map.removeLayer(recommendClusterGroup);
+    };
+  }, [cctvData, showCctv, showRecommendations, activeCameras, showActiveCameras, map]);
+
+  return null;
+}
+
+function formatMonthLabel(dateStr) {
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return 'Unknown';
+  return d.toLocaleString('en-US', { month: 'short', year: '2-digit' });
+}
+
+function AnalyticsDrawer({ cases, kpis, selectedDistrict, districts }) {
+  const crimeTrend = useMemo(() => {
+    const now = new Date();
+    const months = [];
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      months.push({ key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, label: d.toLocaleString('en-US', { month: 'short', year: '2-digit' }), count: 0 });
+    }
+    const monthIndex = {};
+    months.forEach((m, i) => { monthIndex[m.key] = i; });
+
+    cases.forEach(c => {
+      if (!c.dateOfFIR) return;
+      const d = new Date(c.dateOfFIR);
+      if (isNaN(d.getTime())) return;
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      if (monthIndex[key] !== undefined) months[monthIndex[key]].count += 1;
+    });
+    return months;
+  }, [cases]);
+
+  const topHotspots = useMemo(() => {
+    const counts = {};
+    cases.forEach(c => {
+      const name = c.unitName || 'Unknown Station';
+      counts[name] = (counts[name] || 0) + 1;
+    });
+    return Object.entries(counts)
+      .map(([unitName, count]) => ({ unitName, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+  }, [cases]);
+
+  const resolution = useMemo(() => {
+    const total = cases.length;
+    const resolved = cases.filter(c => c.status === 'Chargesheeted' || c.status === 'Closed').length;
+    const pending = total - resolved;
+    const rate = total > 0 ? Math.round((resolved / total) * 100) : 0;
+    return { total, resolved, pending, rate };
+  }, [cases]);
+
+  const insightText = useMemo(() => {
+    if (cases.length === 0) return 'No cases match the current filters, so no insight can be generated yet.';
+
+    const typeCounts = {};
+    cases.forEach(c => { if (c.crimeType) typeCounts[c.crimeType] = (typeCounts[c.crimeType] || 0) + 1; });
+    const topType = Object.entries(typeCounts).sort((a, b) => b[1] - a[1])[0];
+    const topTypePct = topType ? Math.round((topType[1] / cases.length) * 100) : 0;
+
+    const scopeLabel = selectedDistrict
+      ? (districts.find(d => d.rowId === selectedDistrict)?.districtName || 'the selected district')
+      : 'the state overall';
+
+    const topStation = topHotspots[0];
+
+    const parts = [];
+    if (topType) {
+      parts.push(`In ${scopeLabel}, ${topType[0]} is the most frequent crime type in the current selection, accounting for ${topTypePct}% of cases (${topType[1]} of ${cases.length}).`);
+    }
+    if (topStation) {
+      parts.push(`${topStation.unitName} has recorded the highest case volume in this view, with ${topStation.count} case${topStation.count === 1 ? '' : 's'}.`);
+    }
+    parts.push(`${resolution.rate}% of cases in the current selection have been resolved (chargesheeted or closed); ${resolution.pending} case${resolution.pending === 1 ? '' : 's'} remain under investigation.`);
+
+    return parts.join(' ');
+  }, [cases, topHotspots, resolution, selectedDistrict, districts]);
+
+  return (
+    <div className="analytics-drawer-grid">
+      <div className="chart-panel">
+        <h4>📈 Crime Trend (Last 12 Months)</h4>
+        <ResponsiveContainer width="100%" height={180}>
+          <BarChart data={crimeTrend}>
+            <XAxis dataKey="label" tick={{ fill: '#8B96AA', fontSize: 10 }} angle={-30} textAnchor="end" height={45} />
+            <YAxis tick={{ fill: '#8B96AA', fontSize: 10 }} allowDecimals={false} />
+            <Tooltip contentStyle={{ background: '#1A2438', border: '1px solid #232D42', fontSize: 12 }} />
+            <Bar dataKey="count" fill="var(--accent)" radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      <div className="chart-panel">
+        <h4>🔥 Top Crime Hotspots (Top 5 Stations)</h4>
+        {topHotspots.length === 0 ? (
+          <div className="text-muted" style={{ padding: 16, fontSize: 12 }}>No station data available for the current selection.</div>
+        ) : (
+          <ResponsiveContainer width="100%" height={180}>
+            <BarChart data={topHotspots} layout="vertical" margin={{ left: 10 }}>
+              <XAxis type="number" tick={{ fill: '#8B96AA', fontSize: 10 }} allowDecimals={false} />
+              <YAxis type="category" dataKey="unitName" tick={{ fill: '#8B96AA', fontSize: 10 }} width={110} />
+              <Tooltip contentStyle={{ background: '#1A2438', border: '1px solid #232D42', fontSize: 12 }} />
+              <Bar dataKey="count" fill="#E08A3E" radius={[0, 4, 4, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+
+      <div className="chart-panel">
+        <h4>🚓 Case Resolution Rate</h4>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, height: 180 }}>
+          <ResponsiveContainer width="50%" height={140}>
+            <PieChart>
+              <Pie
+                data={[{ name: 'Resolved', value: resolution.resolved }, { name: 'Pending', value: resolution.pending }]}
+                dataKey="value"
+                nameKey="name"
+                innerRadius={32}
+                outerRadius={55}
+              >
+                <Cell fill="var(--status-closed)" />
+                <Cell fill="var(--status-investigation)" />
+              </Pie>
+              <Tooltip contentStyle={{ background: '#1A2438', border: '1px solid #232D42', fontSize: 12 }} />
+            </PieChart>
+          </ResponsiveContainer>
+          <div>
+            <div style={{ fontSize: 28, fontWeight: 700, color: '#E8ECF3' }}>{resolution.rate}%</div>
+            <div style={{ fontSize: 11, color: '#8B96AA' }}>{resolution.resolved} resolved / {resolution.total} total</div>
+            <div style={{ fontSize: 11, color: '#8B96AA' }}>{resolution.pending} pending</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="chart-panel">
+        <h4>🤖 AI Crime Insights</h4>
+        <div style={{ fontSize: 13, color: '#C7CEDA', lineHeight: 1.6, padding: '8px 4px' }}>{insightText}</div>
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  const [kpis, setKpis] = useState(null);
+  const [cases, setCases] = useState([]);
+  const [districts, setDistricts] = useState([]);
+  const [selectedDistrict, setSelectedDistrict] = useState('');
+  const [selectedStatus, setSelectedStatus] = useState('');
+  const [selectedCrimeType, setSelectedCrimeType] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [aiQuestion, setAiQuestion] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
+  const [currentQuestion, setCurrentQuestion] = useState(null);
+  const [currentAnswer, setCurrentAnswer] = useState(null);
+  const [chatHistory, setChatHistory] = useState([]);
+  const [language, setLanguage] = useState('en');
+  const pdfExportRef = useRef(null);
+
+  const SAMPLE_QUESTIONS = {
+    en: [
+      { category: 'Location', icon: '📍', text: 'Show crime cases in Bengaluru.' },
+      { category: 'Location', icon: '📍', text: 'Show theft cases in Mysuru.' },
+      { category: 'Location', icon: '📍', text: 'Which district has the highest crime rate?' },
+      { category: 'Crime', icon: '🚨', text: 'Show all cyber crime cases.' },
+      { category: 'Crime', icon: '🚨', text: 'Show pending investigation cases.' },
+      { category: 'Crime', icon: '🚨', text: 'Show high severity crimes.' },
+      { category: 'AI Insights', icon: '🤖', text: 'Which areas need more CCTV cameras?' },
+      { category: 'AI Insights', icon: '🤖', text: "Predict tomorrow's crime hotspots." },
+      { category: 'AI Insights', icon: '🤖', text: 'Which police stations have the highest workload?' },
+      { category: 'Analytics', icon: '📊', text: 'Compare crime trends between Bengaluru and Mysuru.' },
+      { category: 'Analytics', icon: '📊', text: 'Show crime trend for the last 30 days.' },
+      { category: 'Analytics', icon: '📊', text: 'Which crime type is increasing the most?' }
+    ],
+    kn: [
+      { category: 'Kannada', icon: '🌐', text: 'ಬೆಂಗಳೂರಿನ ಅಪರಾಧ ಪ್ರಕರಣಗಳನ್ನು ತೋರಿಸಿ' },
+      { category: 'Kannada', icon: '🌐', text: 'ಮೈಸೂರಿನಲ್ಲಿ ಕಳ್ಳತನ ಪ್ರಕರಣಗಳನ್ನು ತೋರಿಸಿ' },
+      { category: 'Kannada', icon: '🌐', text: 'ಯಾವ ಜಿಲ್ಲೆಯಲ್ಲಿ ಹೆಚ್ಚು ಅಪರಾಧಗಳಿವೆ?' },
+      { category: 'Kannada', icon: '🌐', text: 'ಹೆಚ್ಚು ಸಿಸಿಟಿವಿ ಅಗತ್ಯವಿರುವ ಪ್ರದೇಶಗಳನ್ನು ತೋರಿಸಿ' }
+    ]
+  };
+
+  const orderedQuestions = language === 'kn'
+    ? [...SAMPLE_QUESTIONS.kn, ...SAMPLE_QUESTIONS.en]
+    : [...SAMPLE_QUESTIONS.en, ...SAMPLE_QUESTIONS.kn];
+
+  const handleSampleQuestionClick = (text) => {
+    setAiQuestion(text);
+    setTimeout(() => handleAskAI(), 0);
+  };
+  const [showHistory, setShowHistory] = useState(false);
+  const [loadingStageIndex, setLoadingStageIndex] = useState(0);
+  const [showAnalytics, setShowAnalytics] = useState(false);
+  const responseTopRef = useRef(null);
+  const responseAreaRef = useRef(null);
+const [lang, setLang] = useState('en'); // 'en' | 'kn'
+const t = useLangStrings(lang);
+const [isListening, setIsListening] = useState(false);
+const [isSpeaking, setIsSpeaking] = useState(false);
+const recognitionRef = useRef(null);
+
+  useEffect(() => {
+    if (currentAnswer && responseAreaRef.current) {
+      responseAreaRef.current.scrollTop = 0;
+    }
+  }, [currentAnswer]);
+
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [cctvData, setCctvData] = useState(null);
+  const [showCctv, setShowCctv] = useState(true);
+  const [showRecommendations, setShowRecommendations] = useState(true);
+  const [activeCameras, setActiveCameras] = useState(null);
+  const [showActiveCameras, setShowActiveCameras] = useState(false);
+  const districtCounts = districts.map(d => ({
+    name: d.districtName,
+    count: cases.filter(c => c.districtId === d.rowId).length
+  }));
+ const startVoiceInput = () => {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    alert('Voice input is not supported in this browser. Try Chrome.');
+    return;
+  }
+  const recognition = new SpeechRecognition();
+  recognition.lang = lang === 'kn' ? 'kn-IN' : 'en-IN';
+  recognition.interimResults = false;
+  recognition.maxAlternatives = 1;
+
+  recognition.onstart = () => setIsListening(true);
+  recognition.onend = () => setIsListening(false);
+  recognition.onerror = () => setIsListening(false);
+  recognition.onresult = (event) => {
+    const transcript = event.results[0][0].transcript;
+    setAiQuestion(transcript);
+  };
+
+  recognitionRef.current = recognition;
+  recognition.start();
+};
+
+const stopVoiceInput = () => {
+  recognitionRef.current?.stop();
+  setIsListening(false);
+};
+const speakAnswer = (text) => {
+  if (!('speechSynthesis' in window)) return;
+  window.speechSynthesis.cancel();
+
+  const isKannadaText = /[\u0C80-\u0CFF]/.test(text);
+  const voices = speechSynthesis.getVoices();
+  const hasKannadaVoice = voices.some(v => v.lang.includes('kn'));
+
+  if (isKannadaText && !hasKannadaVoice) {
+    alert("Kannada voice output isn't available on this device. The text response above is still fully in Kannada.");
+    return;
+  }
+
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = isKannadaText ? 'kn-IN' : 'en-IN';
+  utterance.onstart = () => setIsSpeaking(true);
+  utterance.onend = () => setIsSpeaking(false);
+  window.speechSynthesis.speak(utterance);
+};
+
+const stopSpeaking = () => {
+  window.speechSynthesis.cancel();
+  setIsSpeaking(false);
+};
+const exportChatHistoryPDF = async () => {
+  if (chatHistory.length === 0) {
+    alert('No conversation history to export yet.');
+    return;
+  }
+  if (!pdfExportRef.current) return;
+
+  await document.fonts.ready; // make sure the Kannada font is actually loaded before capturing
+
+  const canvas = await html2canvas(pdfExportRef.current, {
+    scale: 2,
+    backgroundColor: '#ffffff',
+    useCORS: true
+  });
+
+  const imgData = canvas.toDataURL('image/png');
+  const doc = new jsPDF('p', 'mm', 'a4');
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const imgWidth = pageWidth;
+  const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+  let heightLeft = imgHeight;
+  let position = 0;
+
+  doc.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+  heightLeft -= pageHeight;
+
+  while (heightLeft > 0) {
+    position = heightLeft - imgHeight;
+    doc.addPage();
+    doc.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+    heightLeft -= pageHeight;
+  }
+
+  doc.save(`ksp-ai-conversation-${Date.now()}.pdf`);
+};
+
+  const handleAskAI = () => {
+    const question = aiQuestion.trim();
+    if (!question) return;
+
+    setCurrentQuestion(question);
+    setCurrentAnswer(null);
+    setAiQuestion('');
+    setAiLoading(true);
+    setLoadingStageIndex(0);
+
+    let stageIndex = 0;
+    const stageInterval = setInterval(() => {
+      stageIndex = Math.min(stageIndex + 1, AI_STAGES.length - 1);
+      setLoadingStageIndex(stageIndex);
+    }, 4000);
+
+    fetch(`${FUNCTIONS_BASE}/ask-ai-function/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question })
+    })
+      .then(res => res.json())
+      .then(data => {
+        clearInterval(stageInterval);
+        setCurrentAnswer(data);
+        setChatHistory(prev => [...prev, { question, answer: data }]);
+        setAiLoading(false);
+
+        const action = data.dashboardAction;
+        if (!action || action.type === 'none') return;
+
+        if (action.type === 'filterDistrict' && action.district) {
+          const match = districts.find(d => d.districtName.toLowerCase() === action.district.toLowerCase());
+          if (match) setSelectedDistrict(match.rowId);
+        } else if (action.type === 'filterCrimeType' && action.crimeType) {
+          setSelectedCrimeType(action.crimeType);
+        } else if (action.type === 'filterStatus' && action.status) {
+          setSelectedStatus(action.status);
+        } else if (action.type === 'showHotspots') {
+          setShowRecommendations(true);
+          if (action.district) {
+            const match = districts.find(d => d.districtName.toLowerCase() === action.district.toLowerCase());
+            if (match) setSelectedDistrict(match.rowId);
+          }
+        } else if (action.type === 'showCCTV') {
+          setShowActiveCameras(true);
+        }
+      })
+      .catch(err => {
+        clearInterval(stageInterval);
+        const fallback = { insight: 'Something went wrong. Please try again.', reasoning: [], recommendation: '', confidence: 0 };
+        setCurrentAnswer(fallback);
+        setChatHistory(prev => [...prev, { question, answer: fallback }]);
+        setAiLoading(false);
+        console.error('AI query error:', err);
+      });
+  };
+
+  useEffect(() => {
+    fetch(`${FUNCTIONS_BASE}/dashboard-function/`)
+      .then(res => res.json())
+      .then(setKpis)
+      .catch(err => console.error('KPI fetch error:', err));
+
+    fetch(`${FUNCTIONS_BASE}/map-data-function/?type=districts`)
+      .then(res => res.json())
+      .then(data => setDistricts(data.districts || []))
+      .catch(err => console.error('Districts fetch error:', err));
+
+    fetch(`${FUNCTIONS_BASE}/cctv-recommend-function/`)
+      .then(res => res.json())
+      .then(setCctvData)
+      .catch(err => console.error('CCTV data fetch error:', err));
+
+    fetch(`${FUNCTIONS_BASE}/cctv-recommend-function/?mode=active`)
+      .then(res => res.json())
+      .then(setActiveCameras)
+      .catch(err => console.error('Active camera fetch error:', err));
+  }, []);
+
+
+  useEffect(() => {
+    setLoading(true);
+    const params = new URLSearchParams();
+    if (selectedDistrict) params.append('district', selectedDistrict);
+    if (selectedStatus) params.append('status', selectedStatus);
+    if (selectedCrimeType) params.append('crimeType', selectedCrimeType);
+
+    fetch(`${FUNCTIONS_BASE}/map-data-function/?${params.toString()}`)
+      .then(res => res.json())
+      .then(data => {
+        setCases(data.cases || []);
+        setLoading(false);
+      })
+      .catch(err => {
+        console.error('Cases fetch error:', err);
+        setLoading(false);
+      });
+  }, [selectedDistrict, selectedStatus, selectedCrimeType]);
+
+  return (
+    <div className="app-shell">
+      <header className="top-bar">
+        <h1>KSP Crime Intelligence Platform</h1>
+        <span className="mono top-bar-sub">Karnataka State Crime Records Bureau</span>
+        <nav className="top-bar-tabs">
+<button
+  className="lang-toggle-btn"
+  onClick={() => setLang(prev => (prev === 'en' ? 'kn' : 'en'))}
+>
+  🌐 {t.langToggle}
+</button>
+          <button className={activeTab === 'dashboard' ? 'tab-active' : ''} onClick={() => setActiveTab('dashboard')}>Dashboard</button>
+          <button className={activeTab === 'network' ? 'tab-active' : ''} onClick={() => setActiveTab('network')}>Criminal Network</button>
+
+<div
+  ref={pdfExportRef}
+  style={{
+    position: 'fixed',
+    top: -99999,
+    left: -99999,
+    width: 700,
+    background: '#ffffff',
+    color: '#111827',
+    padding: 24,
+    fontFamily: "'Noto Sans Kannada', 'Noto Sans', sans-serif"
+  }}
+>
+  <h2 style={{ marginBottom: 4 }}>KSP Crime Intelligence Platform — AI Conversation Log</h2>
+  <div style={{ fontSize: 11, color: '#555', marginBottom: 16 }}>Exported: {new Date().toLocaleString()}</div>
+  {chatHistory.map((item, idx) => (
+    <div key={idx} style={{ marginBottom: 20, paddingBottom: 16, borderBottom: '1px solid #ddd' }}>
+      <div style={{ fontWeight: 700, marginBottom: 6 }}>Q{idx + 1}: {item.question}</div>
+      {item.answer?.insight && <div style={{ marginBottom: 6 }}><strong>Insight:</strong> {item.answer.insight}</div>}
+      {Array.isArray(item.answer?.reasoning) && item.answer.reasoning.length > 0 && (
+        <ul style={{ margin: '6px 0', paddingLeft: 20 }}>
+          {item.answer.reasoning.map((r, i) => <li key={i}>{r}</li>)}
+        </ul>
+      )}
+      {item.answer?.recommendation && <div style={{ marginBottom: 6 }}><strong>Recommendation:</strong> {item.answer.recommendation}</div>}
+      {typeof item.answer?.confidence === 'number' && <div><strong>Confidence:</strong> {item.answer.confidence}%</div>}
+    </div>
+  ))}
+</div>
+        </nav>
+      </header>
+      {activeTab === 'dashboard' && (
+      <>
+      <div className="kpi-strip">
+        <KpiCard label="Total Cases" value={kpis?.totalCases ?? '\u2014'} />
+        <KpiCard label="Under Investigation" value={kpis?.underInvestigation ?? '\u2014'} color="var(--status-investigation)" />
+        <KpiCard label="Chargesheeted" value={kpis?.chargesheeted ?? '\u2014'} color="var(--status-chargesheeted)" />
+        <KpiCard label="Closed" value={kpis?.closed ?? '\u2014'} color="var(--status-closed)" />
+        <KpiCard label="Chargesheet Rate" value={kpis?.chargesheetRate ?? '\u2014'} />
+      </div>
+
+      <div className="main-layout">
+        <aside className="filter-rail">
+          <h3>Filters</h3>
+          <label className="filter-label">District</label>
+          <select value={selectedDistrict} onChange={e => setSelectedDistrict(e.target.value)}>
+            <option value="">All Districts</option>
+            {districts.map(d => (
+              <option key={d.rowId} value={d.rowId}>{d.districtName}</option>
+            ))}
+          </select>
+
+          <label className="filter-label">Status</label>
+          <select value={selectedStatus} onChange={e => setSelectedStatus(e.target.value)}>
+            <option value="">All Statuses</option>
+            <option value="Under Investigation">Under Investigation</option>
+            <option value="Chargesheeted">Chargesheeted</option>
+            <option value="Closed">Closed</option>
+          </select>
+          <label className="filter-label">Crime Type</label>
+          <select value={selectedCrimeType} onChange={e => setSelectedCrimeType(e.target.value)}>
+            <option value="">All Crime Types</option>
+            <option value="Theft">Theft</option>
+            <option value="Burglary">Burglary</option>
+            <option value="Cybercrime">Cybercrime</option>
+            <option value="Assault">Assault</option>
+            <option value="Robbery">Robbery</option>
+            <option value="Domestic Violence">Domestic Violence</option>
+            <option value="Fraud">Fraud</option>
+            <option value="Chain Snatching">Chain Snatching</option>
+            <option value="Vehicle Theft">Vehicle Theft</option>
+            <option value="Extortion">Extortion</option>
+          </select>
+         <div className="case-count mono">{loading ? 'Loading...' : `${cases.length} cases shown`}</div>
+
+          <div className="layer-toggles">
+            
+            <label className="toggle-label">
+              <input type="checkbox" checked={showRecommendations} onChange={e => setShowRecommendations(e.target.checked)} />
+              CCTV Recommendations
+            </label>
+            <label className="toggle-label">
+              <input type="checkbox" checked={showActiveCameras} onChange={e => setShowActiveCameras(e.target.checked)} />
+              Existing CCTV Cameras
+            </label>
+          </div>
+
+          {cctvData && (
+            <div className="cctv-summary mono">
+              <div>{cctvData.unitsWithoutCCTV} areas without CCTV</div>
+            </div>
+          )}
+        </aside>
+        <div className="map-container">
+          {!loading && cases.length === 0 && (
+            <div className="empty-state">
+              <p>No cases match the selected filters.</p>
+              <p className="text-muted">Try a different district or status combination.</p>
+            </div>
+          )}
+          <MapContainer
+            center={[15.3173, 75.7139]}
+            zoom={7}
+            minZoom={7}
+            maxBounds={KARNATAKA_BOUNDS}
+            maxBoundsViscosity={1.0}
+            style={{ height: '100%', width: '100%' }}
+          >
+            <TileLayer
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              attribution='&copy; OpenStreetMap contributors'
+            />
+            <DistrictBoundaries selectedDistrictName={DB_TO_GEOJSON_NAME[districts.find(d => d.rowId === selectedDistrict)?.districtName] || null} />
+            <ClusterLayer cases={cases} />
+            <CctvLayer cctvData={cctvData} showCctv={showCctv} showRecommendations={showRecommendations} activeCameras={activeCameras} showActiveCameras={showActiveCameras} />
+          </MapContainer>
+        </div>
+
+      <aside className="side-panel">
+        <div className="side-panel-header">
+          <h3>Ask AI</h3>
+          <button
+            className="history-btn"
+            onClick={() => setShowHistory(true)}
+            disabled={chatHistory.length === 0}
+          >
+            📜 History
+          </button>
+        </div>
+        <p className="disclaimer">This assistant never references caste or religion data, which is excluded from the system by design.</p>
+
+        <div className="ai-response-area" ref={responseAreaRef}>
+          {!currentQuestion && !aiLoading && (
+            <div className="chat-empty-state">
+              Ask a question, e.g. "How many burglary cases are there?"
+            </div>
+          )}
+
+          {currentQuestion && (
+            <div className="analysis-card" ref={responseTopRef}>
+              <div className="analysis-question">
+                <span className="ai-section-label">Question</span>
+                <div>{currentQuestion}</div>
+              </div>
+
+              {aiLoading && (
+                <div className="ai-loading-state">
+                  <div className="ai-loading-title">🤖 AI is analyzing...</div>
+                  <div className="ai-loading-sub">This may take 30–60 seconds.</div>
+                  <ul className="loading-checklist">
+                    {AI_STAGES.map((s, i) => (
+                      <li
+                        key={s}
+                        className={i < loadingStageIndex ? 'done' : i === loadingStageIndex ? 'active' : 'pending'}
+                      >
+                        <span className="checklist-icon">
+                          {i < loadingStageIndex ? '✓' : i === loadingStageIndex ? '●' : '○'}
+                        </span>
+                        {s}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {!aiLoading && currentAnswer && (
+                <div className="analysis-body">
+<button
+  className="speak-btn"
+  onClick={() => (isSpeaking ? stopSpeaking() : speakAnswer(currentAnswer.insight + ' ' + (currentAnswer.recommendation || '')))}
+>
+  {isSpeaking ? `⏹ ${t.aiStopSpeak}` : `🔊 ${t.aiSpeak}`}
+</button>
+                  {currentAnswer.insight && (
+                    <div className="ai-section">
+                      <span className="ai-section-label">📊 Insight</span>
+                      <div className="ai-insight">{currentAnswer.insight}</div>
+                    </div>
+                  )}
+                 {currentAnswer.reasoning && (
+  <div className="ai-section">
+    <span className="ai-section-label">🧠 Reasoning</span>
+    {Array.isArray(currentAnswer.reasoning) ? (
+      <ul className="ai-reasoning">
+        {currentAnswer.reasoning.map((r, i) => <li key={i}>{r}</li>)}
+      </ul>
+    ) : (
+      <div className="ai-insight">{String(currentAnswer.reasoning)}</div>
+    )}
+  </div>
+)}
+                  {currentAnswer.recommendation && (
+                    <div className="ai-section">
+                      <span className="ai-section-label">✅ Recommendation</span>
+                      <div className="ai-recommendation">{currentAnswer.recommendation}</div>
+                    </div>
+                  )}
+                  {typeof currentAnswer.confidence === 'number' && (
+                    <div className="ai-section">
+                      <span className="ai-section-label">🎯 Confidence</span>
+                      <div className="ai-confidence">{currentAnswer.confidence}%</div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="chat-input-bar">
+          <textarea
+            className="ai-input"
+            placeholder="Ask anything about crime..."
+            value={aiQuestion}
+            onChange={e => setAiQuestion(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleAskAI();
+              }
+            }}
+            rows={2}
+          />
+          <button
+  className={`mic-btn ${isListening ? 'mic-active' : ''}`}
+  type="button"
+  title={isListening ? t.aiListening : 'Voice input'}
+  onClick={isListening ? stopVoiceInput : startVoiceInput}
+>
+  {isListening ? '🔴' : '🎤'}
+</button>
+          <button className="ai-submit" onClick={handleAskAI} disabled={aiLoading || !aiQuestion.trim()}>
+            {aiLoading ? '…' : 'Ask'}
+          </button>
+        </div>
+
+        {showHistory && (
+          <div className="history-drawer-overlay" onClick={() => setShowHistory(false)}>
+            <div className="history-drawer" onClick={e => e.stopPropagation()}>
+             <div className="history-drawer-header">
+                <h4>Previous Questions</h4>
+                <button className="history-export-btn" onClick={exportChatHistoryPDF}>⬇ Export PDF</button>
+                <button className="history-close" onClick={() => setShowHistory(false)}>&times;</button>
+              </div>
+              <div className="history-drawer-body">
+                {chatHistory.length === 0 && <div className="text-muted">No previous questions yet.</div>}
+                {[...chatHistory].reverse().map((item, i) => (
+                  <div
+                    key={i}
+                    className="history-item"
+                    onClick={() => {
+                      setCurrentQuestion(item.question);
+                      setCurrentAnswer(item.answer);
+                      setShowHistory(false);
+                    }}
+                  >
+                    <div className="history-item-q">{item.question}</div>
+                    {item.answer?.insight && <div className="history-item-a">{item.answer.insight}</div>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </aside>
+      </div>
+
+      <div className="analytics-toggle-row">
+        <button className="analytics-toggle-btn" onClick={() => setShowAnalytics(v => !v)}>
+          📊 Analytics {showAnalytics ? '▲' : '▼'}
+        </button>
+      </div>
+
+      {showAnalytics && (
+        <AnalyticsDrawer cases={cases} kpis={kpis} selectedDistrict={selectedDistrict} districts={districts} />
+      )}
+      </>
+      )}
+
+      {activeTab === 'network' && (
+        <div className="network-tab-content">
+          <NetworkGraphPanel functionsBase={FUNCTIONS_BASE} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function KpiCard({ label, value, color }) {
+  return (
+    <div className="kpi-card">
+      <div className="kpi-value mono" style={{ color: color || 'var(--text-primary)' }}>{value}</div>
+      <div className="kpi-label">{label}</div>
+    </div>
+  );
+}
+
+function StatCard({ label, value }) {
+  return (
+    <div style={{ background: '#111827', border: '1px solid #232D42', borderRadius: 8, padding: '12px 16px' }}>
+      <div style={{ fontSize: 20, fontWeight: 700, color: '#E8ECF3' }}>{value}</div>
+      <div style={{ fontSize: 11, color: '#8B96AA', marginTop: 4 }}>{label}</div>
+    </div>
+  );
+}
+
+function DetailRow({ label, value, valueColor }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '4px 0', borderBottom: '1px solid #1A2438', gap: 8 }}>
+      <span style={{ color: '#8B96AA', flexShrink: 0 }}>{label}</span>
+      <span style={{ color: valueColor || '#E8ECF3', fontWeight: 600, textAlign: 'right' }}>{value}</span>
+    </div>
+  );
+}
+
+function LegendRow({ color, label, line, dashed, shape }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: '#C7CEDA', padding: '3px 0' }}>
+      {line ? (
+        <div style={{ width: 20, height: 0, borderTop: dashed ? `2px dashed ${color}` : `2px solid ${color}` }} />
+      ) : (
+        <div style={{ width: 10, height: 10, borderRadius: shape === 'square' ? 2 : '50%', background: color, flexShrink: 0 }} />
+      )}
+      <span>{label}</span>
+    </div>
+  );
+}
+function ResizeHandle({ currentWidth, setWidth, min, max, direction, defaultWidth }) {
+  const handleMouseDown = (e) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = currentWidth;
+    const handleMove = (moveEvent) => {
+      const delta = moveEvent.clientX - startX;
+      const raw = direction === 'grow-right' ? startWidth + delta : startWidth - delta;
+      setWidth(Math.min(max, Math.max(min, raw)));
+    };
+    const handleUp = () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  };
+
+  return (
+    <div
+      onMouseDown={handleMouseDown}
+      onDoubleClick={() => setWidth(defaultWidth)}
+      title="Drag to resize · double-click to reset"
+      style={{ width: 10, flexShrink: 0, cursor: 'col-resize', alignSelf: 'stretch', position: 'relative' }}
+    >
+      <div style={{ position: 'absolute', left: 4, top: 0, bottom: 0, width: 2, background: '#232D42', borderRadius: 2 }} />
+    </div>
+  );
+}
+function NetworkGraphPanel({ functionsBase }) {
+  const [rawData, setRawData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [selectedOffender, setSelectedOffender] = useState(null);
+  const [showCaseNetwork, setShowCaseNetwork] = useState(false);
+  const [districtFilter, setDistrictFilter] = useState('');
+  const [crimeTypeFilter, setCrimeTypeFilter] = useState('');
+  const [yearFilter, setYearFilter] = useState('');
+  const [hideIsolated, setHideIsolated] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [aiSummary, setAiSummary] = useState(null);
+  const [aiSummaryLoading, setAiSummaryLoading] = useState(false);
+  const [highlightNodeIds, setHighlightNodeIds] = useState(null);
+  const [highlightLinkSet, setHighlightLinkSet] = useState(null);
+const [filterWidth, setFilterWidth] = useState(() => {
+    if (typeof window === 'undefined') return 220;
+    const stored = parseInt(localStorage.getItem('ksp-network-filter-width'), 10);
+    return Number.isFinite(stored) ? stored : 220;
+  });
+  const [offenderPanelWidth, setOffenderPanelWidth] = useState(() => {
+    if (typeof window === 'undefined') return 300;
+    const stored = parseInt(localStorage.getItem('ksp-network-offender-width'), 10);
+    return Number.isFinite(stored) ? stored : 300;
+  });
+
+  useEffect(() => {
+    try { localStorage.setItem('ksp-network-filter-width', String(filterWidth)); } catch {}
+  }, [filterWidth]);
+
+  useEffect(() => {
+    try { localStorage.setItem('ksp-network-offender-width', String(offenderPanelWidth)); } catch {}
+  }, [offenderPanelWidth]);
+  const containerRef = useRef(null);
+  const resizeObserverRef = useRef(null);
+
+  const setContainerRef = useCallback((node) => {
+    containerRef.current = node;
+    if (resizeObserverRef.current) {
+      resizeObserverRef.current.disconnect();
+      resizeObserverRef.current = null;
+    }
+    if (node) {
+      const updateSize = () => {
+        const rect = node.getBoundingClientRect();
+        const w = Math.round(rect.width);
+        const h = Math.round(rect.height);
+        if (w > 0 && h > 0) {
+          setDimensions({ width: w, height: h });
+        }
+      };
+      updateSize();
+      const ro = new ResizeObserver(updateSize);
+      ro.observe(node);
+      resizeObserverRef.current = ro;
+    }
+  }, []);
+  const [dimensions, setDimensions] = useState({
+    width: typeof window !== 'undefined' ? Math.max(400, window.innerWidth - 600) : 800,
+    height: typeof window !== 'undefined' ? Math.max(400, window.innerHeight - 260) : 560
+  });
+
+  useEffect(() => {
+    fetch(`${functionsBase}/network-graph-function/`)
+      .then(res => res.json())
+      .then(data => {
+        setRawData(data);
+        setLoading(false);
+      })
+      .catch(err => {
+        console.error('Network graph fetch error:', err);
+        setLoading(false);
+      });
+  }, [functionsBase]);
+
+  const offenderNodes = useMemo(() => (rawData?.nodes || []).filter(n => n.type === 'offender'), [rawData]);
+  const caseNodesAll = useMemo(() => (rawData?.nodes || []).filter(n => n.type === 'case'), [rawData]);
+  const offenderEdgesAll = useMemo(() => (rawData?.edges || []).filter(e => e.type === 'offender-link'), [rawData]);
+  const caseEdgesAll = useMemo(() => (rawData?.edges || []).filter(e => e.type === 'case-link'), [rawData]);
+
+  const allDistricts = useMemo(() => {
+    const s = new Set();
+    offenderNodes.forEach(n => (n.districts || []).forEach(d => s.add(d)));
+    return [...s].sort();
+  }, [offenderNodes]);
+
+  const allCrimeTypes = useMemo(() => {
+    const s = new Set();
+    offenderNodes.forEach(n => (n.crimeTypeBreakdown || []).forEach(t => s.add(t.crimeType)));
+    return [...s].sort();
+  }, [offenderNodes]);
+
+  // Years derived from each offender's active date range (firstCaseDate..lastCaseDate).
+  // Filtering by year checks whether that range overlaps the selected year --
+  // this is an approximation (we only have first/last per offender, not every
+  // individual case date at this layer), but it's honest and clearly scoped.
+  const allYears = useMemo(() => {
+    const s = new Set();
+    offenderNodes.forEach(n => {
+      const y1 = n.firstCaseDate ? new Date(n.firstCaseDate).getFullYear() : null;
+      const y2 = n.lastCaseDate ? new Date(n.lastCaseDate).getFullYear() : null;
+      if (y1) s.add(y1);
+      if (y2) s.add(y2);
+    });
+    return [...s].sort((a, b) => b - a);
+  }, [offenderNodes]);
+
+  const offenderActiveInYear = (n, year) => {
+    if (!year) return true;
+    const y1 = n.firstCaseDate ? new Date(n.firstCaseDate).getFullYear() : null;
+    const y2 = n.lastCaseDate ? new Date(n.lastCaseDate).getFullYear() : null;
+    if (y1 === null && y2 === null) return false;
+    const lo = Math.min(y1 ?? y2, y2 ?? y1);
+    const hi = Math.max(y1 ?? y2, y2 ?? y1);
+    return year >= lo && year <= hi;
+  };
+
+  const preIsolationFilteredNodes = useMemo(() => offenderNodes.filter(n => {
+    if (districtFilter && !(n.districts || []).includes(districtFilter)) return false;
+    if (crimeTypeFilter && !(n.crimeTypeBreakdown || []).some(t => t.crimeType === crimeTypeFilter)) return false;
+    if (yearFilter && !offenderActiveInYear(n, Number(yearFilter))) return false;
+    if (searchTerm && !n.label.toLowerCase().includes(searchTerm.toLowerCase())) return false;
+    return true;
+  }), [offenderNodes, districtFilter, crimeTypeFilter, yearFilter, searchTerm]);
+
+  const preIsolationIds = useMemo(() => new Set(preIsolationFilteredNodes.map(n => n.id)), [preIsolationFilteredNodes]);
+
+  const filteredOffenderNodes = useMemo(() => {
+    if (!hideIsolated) return preIsolationFilteredNodes;
+    const connectedIds = new Set();
+    offenderEdgesAll.forEach(e => {
+      if (preIsolationIds.has(e.source) && preIsolationIds.has(e.target)) {
+        connectedIds.add(e.source);
+        connectedIds.add(e.target);
+      }
+    });
+    return preIsolationFilteredNodes.filter(n => connectedIds.has(n.id));
+  }, [preIsolationFilteredNodes, preIsolationIds, hideIsolated, offenderEdgesAll]);
+
+  const filteredIds = useMemo(() => new Set(filteredOffenderNodes.map(n => n.id)), [filteredOffenderNodes]);
+
+  const fgRef = useRef();
+
+  const graphData = useMemo(() => {
+    const offenderLinks = offenderEdgesAll
+      .filter(e => filteredIds.has(e.source) && filteredIds.has(e.target))
+      .map(e => ({ ...e }));
+
+    if (!showCaseNetwork) {
+      return { nodes: filteredOffenderNodes.map(n => ({ ...n })), links: offenderLinks };
+    }
+
+    const relevantCaseEdges = caseEdgesAll.filter(e => filteredIds.has(e.source));
+    const relevantCaseIds = new Set(relevantCaseEdges.map(e => e.target));
+    const relevantCaseNodes = caseNodesAll.filter(n => relevantCaseIds.has(n.id));
+
+    return {
+      nodes: [...filteredOffenderNodes.map(n => ({ ...n })), ...relevantCaseNodes.map(n => ({ ...n }))],
+      links: [...offenderLinks, ...relevantCaseEdges.map(e => ({ ...e }))]
+    };
+  }, [showCaseNetwork, filteredOffenderNodes, filteredIds, offenderEdgesAll, caseEdgesAll, caseNodesAll]);
+
+  // Linked cases for the selected offender (real data: pulled from the full,
+  // unfiltered case-edge/case-node set, not the currently-displayed graph --
+  // so this list is always complete for that offender regardless of filters).
+  const selectedOffenderCases = useMemo(() => {
+    if (!selectedOffender) return [];
+    const myCaseEdges = caseEdgesAll.filter(e => e.source === selectedOffender.id);
+    const myCaseIds = new Set(myCaseEdges.map(e => e.target));
+    return caseNodesAll
+      .filter(n => myCaseIds.has(n.id))
+      .sort((a, b) => (a.dateOfFIR || '').localeCompare(b.dateOfFIR || ''));
+  }, [selectedOffender, caseEdgesAll, caseNodesAll]);
+
+  useEffect(() => {
+    if (!fgRef.current || graphData.nodes.length === 0) return;
+    if (dimensions.width === 0 || dimensions.height === 0) return;
+    const t = setTimeout(() => {
+      fgRef.current.zoomToFit(400, 50);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [graphData, dimensions.width, dimensions.height]);
+
+  const stats = useMemo(() => {
+    const repeatOffenderCount = offenderNodes.filter(n => (n.caseCount || 0) > 1).length;
+    const highRiskCount = offenderNodes.filter(n => (n.riskScore || 0) >= 80).length;
+    const crossDistrictCount = offenderNodes.filter(n => (n.districts || []).length > 1).length;
+    const avgAssociates = offenderNodes.length
+      ? (offenderNodes.reduce((sum, n) => sum + (n.associateCount || 0), 0) / offenderNodes.length).toFixed(1)
+      : '0';
+    const repeatOffenderPct = offenderNodes.length
+      ? Math.round((repeatOffenderCount / offenderNodes.length) * 100)
+      : 0;
+    const mostConnected = offenderNodes.reduce((max, n) =>
+      (n.associateCount || 0) > (max?.associateCount || 0) ? n : max, null);
+
+    return {
+      totalOffenders: offenderNodes.length,
+      totalCasesLinked: rawData?.totalCasesLinked ?? caseNodesAll.length,
+      networkNodes: rawData?.networkNodes ?? (offenderNodes.length + caseNodesAll.length),
+      networkEdges: rawData?.networkEdges ?? (offenderEdgesAll.length + caseEdgesAll.length),
+      avgRisk: rawData?.averageRiskScore ?? 0,
+      repeatOffenderCount,
+      highRiskCount,
+      crossDistrictCount,
+      avgAssociates,
+      repeatOffenderPct,
+      mostConnected
+    };
+  }, [rawData, offenderNodes, caseNodesAll, offenderEdgesAll, caseEdgesAll]);
+
+  const handleNodeClick = (node) => {
+    if (node.type !== 'offender') return;
+    setSelectedOffender(node);
+    setAiSummary(null);
+
+    const connectedLinks = graphData.links.filter(l => {
+      const sourceId = typeof l.source === 'object' ? l.source.id : l.source;
+      const targetId = typeof l.target === 'object' ? l.target.id : l.target;
+      return sourceId === node.id || targetId === node.id;
+    });
+    const connectedIds = new Set([node.id]);
+    connectedLinks.forEach(l => {
+      const sourceId = typeof l.source === 'object' ? l.source.id : l.source;
+      const targetId = typeof l.target === 'object' ? l.target.id : l.target;
+      connectedIds.add(sourceId);
+      connectedIds.add(targetId);
+    });
+    setHighlightNodeIds(connectedIds);
+    setHighlightLinkSet(new Set(connectedLinks));
+  };
+
+  const clearSelection = () => {
+    setSelectedOffender(null);
+    setAiSummary(null);
+    setHighlightNodeIds(null);
+    setHighlightLinkSet(null);
+  };
+
+  const generateSummary = () => {
+    if (!selectedOffender) return;
+    setAiSummaryLoading(true);
+    fetch(`${functionsBase}/network-graph-function/?offenderId=${encodeURIComponent(selectedOffender.aadhaar)}&mode=summary`)
+      .then(res => res.json())
+      .then(d => {
+        setAiSummary(d.summary || 'No summary available.');
+        setAiSummaryLoading(false);
+      })
+      .catch(err => {
+        console.error('AI summary error:', err);
+        setAiSummary('Unable to generate summary right now.');
+        setAiSummaryLoading(false);
+      });
+  };
+
+  if (loading) {
+    return <div className="network-panel-loading mono">Loading criminal network data...</div>;
+  }
+
+  if (!rawData || offenderNodes.length === 0) {
+    return (
+      <div className="network-panel-empty">
+        <p>No repeat offenders detected in current data.</p>
+        <p className="text-muted">This view highlights individuals linked to 2 or more cases.</p>
+      </div>
+    );
+  }
+
+  const isDimmed = (id) => highlightNodeIds !== null && !highlightNodeIds.has(id);
+
+  const nodeColor = (n) => {
+    const baseColor = n.type === 'offender' ? getRiskColor(n.riskScore || 0) : CASE_NODE_COLOR;
+    return isDimmed(n.id) ? FADE_COLOR : baseColor;
+  };
+
+  const linkColor = (l) => {
+    const baseColor = l.strength === 'strong'
+      ? 'rgba(224, 138, 62, 0.9)'
+      : l.strength === 'medium'
+        ? 'rgba(74, 127, 181, 0.65)'
+        : 'rgba(139, 150, 170, 0.35)';
+    if (highlightLinkSet !== null && !highlightLinkSet.has(l)) return FADE_LINK_COLOR;
+    return baseColor;
+  };
+  const linkWidth = (l) => (l.strength === 'strong' ? 2.5 : l.strength === 'medium' ? 1.5 : 1);
+  const linkDash = (l) => (l.strength === 'weak' ? [4, 2] : null);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16, height: 'calc(100vh - 180px)', minHeight: 500 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, flexShrink: 0 }}>
+        <StatCard label="Total Offenders" value={stats.totalOffenders} />
+        <StatCard label="Total Cases Linked" value={stats.totalCasesLinked} />
+        <StatCard label="Network Nodes" value={stats.networkNodes} />
+        <StatCard label="Total Connections" value={stats.networkEdges} />
+        <StatCard label="Average Risk Score" value={`${stats.avgRisk}/100`} />
+        <StatCard label="Repeat Offenders" value={stats.repeatOffenderCount} />
+        <StatCard label="High-Risk Offenders (80+)" value={stats.highRiskCount} />
+        <StatCard label="Cross-District Networks" value={stats.crossDistrictCount} />
+      </div>
+
+      <div style={{ display: 'flex', gap: 16, flex: 1, minHeight: 0 }}>
+       <div style={{ width: filterWidth, flexShrink: 0, background: '#111827', border: '1px solid #232D42', borderRadius: 8, padding: 16, overflowY: 'auto' }}>
+          <h4 style={{ margin: '0 0 12px', color: '#E8ECF3', fontSize: 14 }}>Filters</h4>
+
+          <label style={{ fontSize: 11, color: '#8B96AA', display: 'block', marginBottom: 4 }}>District</label>
+          <select
+            style={{ width: '100%', marginBottom: 12, background: '#0F1523', color: '#E8ECF3', border: '1px solid #232D42', borderRadius: 4, padding: '6px 8px', fontSize: 12 }}
+            value={districtFilter}
+            onChange={e => setDistrictFilter(e.target.value)}
+          >
+            <option value="">All Districts</option>
+            {allDistricts.map(d => <option key={d} value={d}>{d}</option>)}
+          </select>
+
+          <label style={{ fontSize: 11, color: '#8B96AA', display: 'block', marginBottom: 4 }}>Crime Type</label>
+          <select
+            style={{ width: '100%', marginBottom: 12, background: '#0F1523', color: '#E8ECF3', border: '1px solid #232D42', borderRadius: 4, padding: '6px 8px', fontSize: 12 }}
+            value={crimeTypeFilter}
+            onChange={e => setCrimeTypeFilter(e.target.value)}
+          >
+            <option value="">All Crime Types</option>
+            {allCrimeTypes.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+
+          <label style={{ fontSize: 11, color: '#8B96AA', display: 'block', marginBottom: 4 }}>Search Offender</label>
+          <input
+            style={{ width: '100%', marginBottom: 12, background: '#0F1523', color: '#E8ECF3', border: '1px solid #232D42', borderRadius: 4, padding: '6px 8px', fontSize: 12, boxSizing: 'border-box' }}
+            placeholder="Name..."
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+          />
+
+          <label style={{ fontSize: 11, color: '#8B96AA', display: 'block', marginBottom: 4 }}>Year</label>
+          <select
+            style={{ width: '100%', marginBottom: 12, background: '#0F1523', color: '#E8ECF3', border: '1px solid #232D42', borderRadius: 4, padding: '6px 8px', fontSize: 12 }}
+            value={yearFilter}
+            onChange={e => setYearFilter(e.target.value)}
+          >
+            <option value="">All Years</option>
+            {allYears.map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+
+          <label style={{ fontSize: 12, color: '#C7CEDA', display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+            <input type="checkbox" checked={hideIsolated} onChange={e => setHideIsolated(e.target.checked)} />
+            Hide Isolated Nodes
+          </label>
+
+          <label style={{ fontSize: 12, color: '#C7CEDA', display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+            <input type="checkbox" checked={showCaseNetwork} onChange={e => setShowCaseNetwork(e.target.checked)} />
+            Show Case Network
+          </label>
+
+          <div style={{ marginTop: 20, borderTop: '1px solid #232D42', paddingTop: 12 }}>
+            <h5 style={{ margin: '0 0 8px', color: '#8B96AA', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>Legend</h5>
+            <LegendRow color={RISK_HIGH} label="High Risk (80-100)" shape="circle" />
+            <LegendRow color={RISK_MED} label="Medium Risk (50-79)" shape="circle" />
+            <LegendRow color={RISK_LOW} label="Low Risk (<50)" shape="circle" />
+            {showCaseNetwork && <LegendRow color={CASE_NODE_COLOR} label="Case" shape="square" />}
+            <LegendRow color="#E08A3E" label="Strong Association" line />
+            <LegendRow color="rgba(74,127,181,0.8)" label="Medium Association" line />
+            <LegendRow color="#8B96AA" label="Weak Association" line dashed />
+          </div>
+        </div>
+<ResizeHandle
+          currentWidth={filterWidth}
+          setWidth={setFilterWidth}
+          min={160}
+          max={480}
+          direction="grow-right"
+          defaultWidth={220}
+        />
+
+        <div style={{ flex: 1, display: 'flex', minWidth: 0, minHeight: 0 }}>
+          <div
+            style={{
+              flex: 1,
+              minWidth: 0,
+              minHeight: 0,
+              boxSizing: 'border-box',
+              background: '#0F1523',
+              border: '1px solid #232D42',
+              borderRadius: 8,
+              padding: 16,
+              display: 'flex'
+            }}
+          >
+            <div style={{ flex: 1, position: 'relative', minWidth: 0, minHeight: 0 }} ref={setContainerRef}>
+              <div style={{ position: 'absolute', top: 8, right: 8, zIndex: 10, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <button
+                  onClick={() => fgRef.current && fgRef.current.zoom(fgRef.current.zoom() * 1.3, 200)}
+                  title="Zoom in"
+                  style={{ width: 28, height: 28, background: '#111827', border: '1px solid #232D42', color: '#E8ECF3', borderRadius: 4, cursor: 'pointer', fontSize: 14 }}
+                >+</button>
+                <button
+                  onClick={() => fgRef.current && fgRef.current.zoom(fgRef.current.zoom() * 0.77, 200)}
+                  title="Zoom out"
+                  style={{ width: 28, height: 28, background: '#111827', border: '1px solid #232D42', color: '#E8ECF3', borderRadius: 4, cursor: 'pointer', fontSize: 14 }}
+                >−</button>
+                <button
+                  onClick={() => fgRef.current && fgRef.current.zoomToFit(400, 50)}
+                  title="Reset view"
+                  style={{ width: 28, height: 28, background: '#111827', border: '1px solid #232D42', color: '#E8ECF3', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}
+                >⤢</button>
+              </div>
+              <ForceGraph2D
+                ref={fgRef}
+                graphData={graphData}
+                nodeLabel={n => n.type === 'offender' ? `${n.label} (${n.caseCount} cases, risk ${n.riskScore})` : `${n.label} - ${n.crimeType} (${n.status})`}
+                nodeColor={nodeColor}
+                nodeVal={n => n.type === 'offender' ? Math.min(4 + n.caseCount * 1.2, 18) : 3}
+                linkColor={linkColor}
+                linkWidth={linkWidth}
+                linkLineDash={linkDash}
+                backgroundColor="#0F1523"
+                onNodeClick={handleNodeClick}
+                onBackgroundClick={clearSelection}
+                width={dimensions.width}
+                height={dimensions.height}
+                cooldownTime={2000}
+                enableZoomInteraction={true}
+                enablePanInteraction={true}
+                onEngineStop={() => fgRef.current && fgRef.current.zoomToFit(400, 50)}
+              />
+            </div>
+          </div>
+        </div>
+
+        {selectedOffender && (
+          <>
+            <ResizeHandle
+              currentWidth={offenderPanelWidth}
+              setWidth={setOffenderPanelWidth}
+              min={220}
+              max={560}
+              direction="grow-left"
+              defaultWidth={300}
+            />
+            <div style={{ width: offenderPanelWidth, flexShrink: 0, background: '#111827', border: '1px solid #232D42', borderRadius: 8, padding: 16, overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h4 style={{ margin: 0, color: '#E8ECF3', fontSize: 14 }}>Selected Offender</h4>
+              <button
+                onClick={clearSelection}
+                style={{ background: 'none', border: 'none', color: '#8B96AA', cursor: 'pointer', fontSize: 16, lineHeight: 1 }}
+              >
+                &times;
+              </button>
+            </div>
+            <div style={{ marginTop: 12, fontSize: 15, fontWeight: 600, color: '#E8ECF3' }}>{selectedOffender.label}</div>
+            <div style={{ fontSize: 10, color: '#8B96AA', marginBottom: 12, wordBreak: 'break-all' }}>ID: {selectedOffender.aadhaar}</div>
+
+            <DetailRow label="Total Linked Cases" value={selectedOffender.caseCount} />
+            <DetailRow label="Known Associates" value={selectedOffender.associateCount} />
+            <DetailRow
+              label="Risk Score (heuristic)"
+              value={`${selectedOffender.riskScore} / 100`}
+              valueColor={getRiskColor(selectedOffender.riskScore || 0)}
+            />
+            <DetailRow label="Districts" value={(selectedOffender.districts || []).join(', ') || 'Unknown'} />
+            <DetailRow label="First Case" value={selectedOffender.firstCaseDate || 'Unknown'} />
+            <DetailRow label="Last Case" value={selectedOffender.lastCaseDate || 'Unknown'} />
+
+            <div style={{ marginTop: 16 }}>
+              <h5 style={{ margin: '0 0 8px', color: '#8B96AA', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>Crime Type Breakdown</h5>
+              {(selectedOffender.crimeTypeBreakdown || []).map(t => (
+                <div key={t.crimeType} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#C7CEDA', padding: '2px 0' }}>
+                  <span>{t.crimeType}</span><span>{t.count}</span>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ marginTop: 16 }}>
+              <h5 style={{ margin: '0 0 8px', color: '#8B96AA', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>Linked Cases ({selectedOffenderCases.length})</h5>
+              <div style={{ maxHeight: 160, overflowY: 'auto' }}>
+                {selectedOffenderCases.map(c => (
+                  <div key={c.id} style={{ fontSize: 11, color: '#C7CEDA', padding: '6px 0', borderBottom: '1px solid #1A2438' }}>
+                    <div style={{ fontWeight: 600, color: '#E8ECF3' }}>{c.label}</div>
+                    <div style={{ color: '#8B96AA' }}>{c.crimeType} · {c.status}{c.district ? ` · ${c.district}` : ''}</div>
+                    {c.dateOfFIR && <div style={{ color: '#8B96AA' }}>{c.dateOfFIR}</div>}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ marginTop: 16 }}>
+              <h5 style={{ margin: '0 0 8px', color: '#8B96AA', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>AI Summary</h5>
+              {!aiSummary && !aiSummaryLoading && (
+                <button
+                  onClick={generateSummary}
+                  style={{ width: '100%', padding: 8, background: '#1A2438', border: '1px solid #232D42', color: '#E8ECF3', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
+                >
+                  Generate AI Summary
+                </button>
+              )}
+              {aiSummaryLoading && <div style={{ color: '#8B96AA', fontSize: 12 }}>Generating summary...</div>}
+              {aiSummary && <div style={{ fontSize: 12, color: '#C7CEDA', lineHeight: 1.5 }}>{aiSummary}</div>}
+            </div>
+          </div>
+          </>
+        )}
+      </div>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24, background: '#111827', border: '1px solid #232D42', borderRadius: 8, padding: '10px 16px', fontSize: 12, color: '#C7CEDA' }}>
+        <span>Most Connected: <strong style={{ color: '#E8ECF3' }}>{stats.mostConnected?.label || 'N/A'}</strong> {stats.mostConnected ? `(${stats.mostConnected.associateCount} associates)` : ''}</span>
+        <span>Avg Associates: <strong style={{ color: '#E8ECF3' }}>{stats.avgAssociates}</strong></span>
+        <span>Repeat Offender Rate: <strong style={{ color: '#E8ECF3' }}>{stats.repeatOffenderPct}%</strong></span>
+      </div>
+    </div>
+  );
+}
+
+export default App;
