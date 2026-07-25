@@ -1,18 +1,68 @@
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
 :root {
-  --bg: #0B1220;
-  --surface: #131B2E;
-  --surface-2: #1A2438;
-  --border: #232D42;
-  --text-primary: #E6EAF0;
-  --text-muted: #8B96AA;
-  --accent: #4A7FB5;
-  --accent-soft: rgba(74, 127, 181, 0.15);
-  --status-investigation: #D9A441;
-  --status-chargesheeted: #4A7FB5;
-  --status-closed: #5FA88C;
-  --alert: #C1443C;
+  /* Primary Colors - Dark Navy Base */
+  --bg: #06091E;
+  --surface: #0F1527;
+  --surface-2: #151D35;
+  --surface-3: #1A2442;
+  --border: #2A3F5F;
+  --border-light: #3A4F6F;
+  
+  /* Text Colors */
+  --text-primary: #E8ECFA;
+  --text-secondary: #B4BACC;
+  --text-muted: #7A8399;
+  
+  /* Accent Colors */
+  --accent: #5B8DEF;
+  --accent-hover: #4A7FD8;
+  --accent-soft: rgba(91, 141, 239, 0.12);
+  --accent-glow: rgba(91, 141, 239, 0.25);
+  
+  /* Status Colors */
+  --status-investigation: #F59E0B;
+  --status-chargesheeted: #5B8DEF;
+  --status-closed: #10B981;
+  
+  /* Alert & Danger */
+  --alert: #EF4444;
+  --alert-light: #FCA5A5;
+  --success: #10B981;
+  --warning: #F59E0B;
+  
+  /* Shadows & Effects */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.5);
+  --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.6);
+  --glow-md: 0 0 20px rgba(91, 141, 239, 0.2);
+  --glow-lg: 0 0 30px rgba(91, 141, 239, 0.3);
+  
+  /* Spacing */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 12px;
+  --spacing-lg: 16px;
+  --spacing-xl: 24px;
+  --spacing-2xl: 32px;
+  
+  /* Border Radius */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  
+  /* Transitions */
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 300ms cubic-bezier(0.4, 0, 0.2, 1);
+  
+  /* Z-index */
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-modal: 500;
+  --z-tooltip: 600;
 }
 
 * {
@@ -26,26 +76,62 @@ html, body, #root {
   background: var(--bg);
   color: var(--text-primary);
   font-family: 'Inter', sans-serif;
+  line-height: 1.5;
 }
 
-h1, h2, h3, h4 {
+h1, h2, h3, h4, h5, h6 {
   font-family: 'IBM Plex Sans', sans-serif;
   margin: 0;
+  font-weight: 600;
 }
+
+h1 { font-size: 28px; letter-spacing: -0.5px; }
+h2 { font-size: 24px; letter-spacing: -0.3px; }
+h3 { font-size: 16px; letter-spacing: 0.5px; text-transform: uppercase; }
+h4 { font-size: 14px; letter-spacing: 0.4px; text-transform: uppercase; }
 
 .mono {
   font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
 }
 
 a {
-  color: inherit;
+  color: var(--accent);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+
+a:hover {
+  color: var(--accent-hover);
+}
+
+button {
+  font-family: 'Inter', sans-serif;
+  cursor: pointer;
+  border: none;
+  transition: all var(--transition-base);
+}
+
+input, select, textarea {
+  font-family: 'Inter', sans-serif;
+  font-size: 14px;
+  transition: all var(--transition-base);
 }
 
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 ::-webkit-scrollbar-thumb {
-  background: var(--border);
+  background: var(--border-light);
   border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border);
 }

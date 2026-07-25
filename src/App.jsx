@@ -15,6 +15,7 @@ import { GEOJSON_TO_DB_NAME } from './utils/districtNameMap';
 import { useLangStrings } from './translations';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
+import LoginPage from './LoginPage';
 
 const FUNCTIONS_BASE = 'https://ksp-fir-platform-60073928681.development.catalystserverless.in/server';
 
@@ -23,7 +24,13 @@ const STATUS_COLORS = {
   'Chargesheeted': '#4A7FB5',
   'Closed': '#5FA88C'
 };
-
+const SUGGESTED_QUESTIONS = [
+  'How many theft cases are there in Bengaluru Urban?',
+  'Compare Mysuru and Mangaluru crime statistics',
+  'Which areas need CCTV cameras the most?',
+  'How many cases are still under investigation?',
+  'ಗದಗದಲ್ಲಿ ಎಷ್ಟು ಕಳ್ಳತನ ಪ್ರಕರಣಗಳಿವೆ?'
+];
 const KARNATAKA_BOUNDS = [
   [11.5, 74.0],
   [18.5, 78.6]
@@ -36,6 +43,17 @@ const RISK_LOW = '#5FA88C';    // green  - <50
 const CASE_NODE_COLOR = '#4A7FB5';
 const FADE_COLOR = 'rgba(139, 150, 170, 0.12)';
 const FADE_LINK_COLOR = 'rgba(139, 150, 170, 0.06)';
+
+// CCTV recommendation priority colors -- single source of truth used by both
+// the actual map marker (CctvLayer) and the legend (MapLegend), so they can
+// never disagree with each other. Order here is the canonical display order;
+// the legend only shows whichever of these actually appear in the live data.
+const CCTV_PRIORITY_COLORS = { Critical: '#C1443C', High: '#E0792B', Medium: '#D9A441', Low: '#4A7FB5' };
+const CCTV_PRIORITY_ORDER = ['Critical', 'High', 'Medium', 'Low'];
+// Legend is explicitly restricted to only these two tiers -- Critical and
+// Medium are intentionally excluded and will never show here, regardless of
+// what's in the data, per explicit request.
+const CCTV_LEGEND_PRIORITIES = ['High', 'Low'];
 
 const AI_STAGES = [
   'Connecting to AI...',
@@ -120,17 +138,24 @@ function CctvLayer({ cctvData, showCctv, showRecommendations, activeCameras, sho
   useEffect(() => {
     const layerGroup = L.layerGroup();
 
-    const recommendIcon = L.divIcon({
-      html: `<div style="position:relative;">
-        <div style="background:#E05A2B;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;border:2px solid white;box-shadow:0 0 4px rgba(0,0,0,0.5);">
-          <span style="font-size:15px;">ðŸ“·</span>
-        </div>
-        <div style="position:absolute;bottom:-3px;right:-3px;background:white;border-radius:50%;width:15px;height:15px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:bold;color:#E05A2B;line-height:1;">+</div>
-      </div>`,
-      className: 'cctv-recommend-icon',
-      iconSize: L.point(30, 30),
-      iconAnchor: [15, 15]
-    });
+    function makeRecommendIcon(priority) {
+      const color = CCTV_PRIORITY_COLORS[priority] || '#4A7FB5';
+      return L.divIcon({
+        html: `<div class="cctv-recommend-marker" style="width:34px;height:34px;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.6));">
+          <svg width="34" height="34" viewBox="0 0 40 40">
+            <path d="M20 2 L36 8 V18 C36 28 29 35 20 38 C11 35 4 28 4 18 V8 Z" fill="${color}" stroke="white" stroke-width="1.5"/>
+            <g transform="translate(11, 13)">
+              <rect x="0" y="3" width="14" height="9" rx="1.5" fill="white"/>
+              <circle cx="7" cy="7.5" r="3" fill="${color}"/>
+              <rect x="5.5" y="0" width="3" height="3" rx="0.5" fill="white"/>
+            </g>
+          </svg>
+        </div>`,
+        className: '',
+        iconSize: L.point(34, 34),
+        iconAnchor: [17, 17]
+      });
+    }
 
     const recommendClusterGroup = L.markerClusterGroup({
       maxClusterRadius: 35,
@@ -148,9 +173,19 @@ function CctvLayer({ cctvData, showCctv, showRecommendations, activeCameras, sho
 
     if (showRecommendations && cctvData?.topRecommendations) {
       cctvData.topRecommendations.forEach(u => {
-        const marker = L.marker([u.centroidLat, u.centroidLon], { icon: recommendIcon });
+        const marker = L.marker([u.centroidLat, u.centroidLon], { icon: makeRecommendIcon(u.priority) });
+        const priorityColor = CCTV_PRIORITY_COLORS[u.priority] || '#4A7FB5';
         marker.bindPopup(
-          `<div class="mono" style="font-weight:bold;">CCTV Recommended - ${u.priority} Priority</div><div>Install ${u.recommendedCameraCount} camera(s)</div><div>Risk Score: ${u.riskScore}/100</div><div>Cases in area: ${u.caseCount} (${u.highSeverityCount} high-severity)</div><div>Current cameras: ${u.cameraCount}</div><div style="margin-top:4px;font-style:italic;">${u.reason}</div>`
+          `<div style="min-width:220px;">
+            <div class="mono" style="font-weight:bold;font-size:13px;">📹 CCTV Recommendation</div>
+            <div style="display:inline-block;background:${priorityColor};color:white;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:bold;margin:4px 0;">${u.priority} Priority</div>
+            <div style="margin-top:6px;">Risk Score: <strong>${u.riskScore}/100</strong></div>
+            <div>Crime Density: <strong>${u.caseCount} cases</strong> (${u.highSeverityCount} high-severity)</div>
+            <div>Existing CCTV Count: <strong>${u.cameraCount}</strong></div>
+            <div>Recommended Cameras: <strong>${u.recommendedCameraCount}</strong></div>
+            <div>Expected Coverage Improvement: <strong>${u.expectedCoverageImprovementPct}%</strong></div>
+            <div style="margin-top:6px;font-style:italic;font-size:12px;color:#8B96AA;">${u.reason}</div>
+          </div>`
         );
         recommendClusterGroup.addLayer(marker);
       });
@@ -342,7 +377,13 @@ function AnalyticsDrawer({ cases, kpis, selectedDistrict, districts }) {
   );
 }
 
+
+
 function App() {
+  const [user, setUser] = useState(() => {
+    const saved = sessionStorage.getItem('ksp_user');
+    return saved ? JSON.parse(saved) : null;
+  });
   const [kpis, setKpis] = useState(null);
   const [cases, setCases] = useState([]);
   const [districts, setDistricts] = useState([]);
@@ -410,6 +451,7 @@ const recognitionRef = useRef(null);
   const [cctvData, setCctvData] = useState(null);
   const [showCctv, setShowCctv] = useState(true);
   const [showRecommendations, setShowRecommendations] = useState(true);
+  const [recommendationLimit, setRecommendationLimit] = useState('20');
   const [activeCameras, setActiveCameras] = useState(null);
   const [showActiveCameras, setShowActiveCameras] = useState(false);
   const districtCounts = districts.map(d => ({
@@ -429,7 +471,20 @@ const recognitionRef = useRef(null);
 
   recognition.onstart = () => setIsListening(true);
   recognition.onend = () => setIsListening(false);
-  recognition.onerror = () => setIsListening(false);
+  recognition.onerror = (event) => {
+    setIsListening(false);
+    console.error('Speech recognition error:', event.error, event);
+    const errorMessages = {
+      'language-not-supported': lang === 'kn'
+        ? 'Kannada voice input is not supported by this browser/device.'
+        : 'This language is not supported for voice input.',
+      'no-speech': 'No speech was detected. Please try again.',
+      'not-allowed': 'Microphone access was denied. Please allow microphone permissions.',
+      'network': 'A network error occurred during voice recognition.',
+      'audio-capture': 'No microphone was found. Please check your device.'
+    };
+    alert(errorMessages[event.error] || `Voice input error: ${event.error}`);
+  };
   recognition.onresult = (event) => {
     const transcript = event.results[0][0].transcript;
     setAiQuestion(transcript);
@@ -574,16 +629,19 @@ const exportChatHistoryPDF = async () => {
       .then(data => setDistricts(data.districts || []))
       .catch(err => console.error('Districts fetch error:', err));
 
-    fetch(`${FUNCTIONS_BASE}/cctv-recommend-function/`)
-      .then(res => res.json())
-      .then(setCctvData)
-      .catch(err => console.error('CCTV data fetch error:', err));
+    // moved to its own effect below, so it can refetch when recommendationLimit changes
 
     fetch(`${FUNCTIONS_BASE}/cctv-recommend-function/?mode=active`)
       .then(res => res.json())
       .then(setActiveCameras)
       .catch(err => console.error('Active camera fetch error:', err));
   }, []);
+  useEffect(() => {
+    fetch(`${FUNCTIONS_BASE}/cctv-recommend-function/?limit=${recommendationLimit}`)
+      .then(res => res.json())
+      .then(setCctvData)
+      .catch(err => console.error('CCTV data fetch error:', err));
+  }, [recommendationLimit]);
 
 
   useEffect(() => {
@@ -604,6 +662,17 @@ const exportChatHistoryPDF = async () => {
         setLoading(false);
       });
   }, [selectedDistrict, selectedStatus, selectedCrimeType]);
+
+  if (!user) {
+    return (
+      <LoginPage
+        onAuthenticated={(u) => {
+          sessionStorage.setItem('ksp_user', JSON.stringify(u));
+          setUser(u);
+        }}
+      />
+    );
+  }
 
   return (
     <div className="app-shell">
@@ -649,6 +718,16 @@ const exportChatHistoryPDF = async () => {
     </div>
   ))}
 </div>
+          <button
+            className="lang-toggle-btn"
+            onClick={() => {
+              sessionStorage.removeItem('ksp_user');
+              setUser(null);
+            }}
+            title="Log out"
+          >
+            🚪 Logout
+          </button>
         </nav>
       </header>
       {activeTab === 'dashboard' && (
@@ -701,6 +780,17 @@ const exportChatHistoryPDF = async () => {
               <input type="checkbox" checked={showRecommendations} onChange={e => setShowRecommendations(e.target.checked)} />
               CCTV Recommendations
             </label>
+            {showRecommendations && (
+              <select
+                className="recommendation-limit-select"
+                value={recommendationLimit}
+                onChange={e => setRecommendationLimit(e.target.value)}
+              >
+                <option value="20">Top 20</option>
+                <option value="50">Top 50</option>
+                <option value="all">All ({cctvData?.totalRecommendationsAvailable ?? '...'})</option>
+              </select>
+            )}
             <label className="toggle-label">
               <input type="checkbox" checked={showActiveCameras} onChange={e => setShowActiveCameras(e.target.checked)} />
               Existing CCTV Cameras
@@ -736,7 +826,8 @@ const exportChatHistoryPDF = async () => {
             <ClusterLayer cases={cases} />
             <CctvLayer cctvData={cctvData} showCctv={showCctv} showRecommendations={showRecommendations} activeCameras={activeCameras} showActiveCameras={showActiveCameras} />
           </MapContainer>
-        </div>
+ <MapLegend cctvData={cctvData} showRecommendations={showRecommendations} showActiveCameras={showActiveCameras} />
+                 </div>
 
       <aside className="side-panel">
         <div className="side-panel-header">
@@ -746,20 +837,44 @@ const exportChatHistoryPDF = async () => {
             onClick={() => setShowHistory(true)}
             disabled={chatHistory.length === 0}
           >
-            📜 History
+            <svg className="history-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+              <path d="M3 3v5h5" />
+              <path d="M12 7v5l4 2" />
+            </svg>
+            History
           </button>
         </div>
         <p className="disclaimer">This assistant never references caste or religion data, which is excluded from the system by design.</p>
 
         <div className="ai-response-area" ref={responseAreaRef}>
           {!currentQuestion && !aiLoading && (
-            <div className="chat-empty-state">
-              Ask a question, e.g. "How many burglary cases are there?"
-            </div>
-          )}
+  <div className="ai-welcome-screen">
+    <div className="ai-welcome-icon">✨</div>
+    <h2 className="ai-welcome-title">AI Crime Assistant</h2>
+    <p className="ai-welcome-subtitle">
+      Ask about crime trends, districts, and hotspots — in English or Kannada.
+    </p>
+    <div className="ai-welcome-questions">
+      {SUGGESTED_QUESTIONS.map((q, i) => (
+        <button
+          key={i}
+          className="ai-welcome-question-card"
+          style={{ animationDelay: `${i * 60}ms` }}
+          onClick={() => {
+            setAiQuestion(q);
+            setTimeout(() => handleAskAI(), 0);
+          }}
+        >
+          {q}
+        </button>
+      ))}
+    </div>
+  </div>
+)}
 
           {currentQuestion && (
-            <div className="analysis-card" ref={responseTopRef}>
+  <div className="analysis-card analysis-card-enter" ref={responseTopRef}>
               <div className="analysis-question">
                 <span className="ai-section-label">Question</span>
                 <div>{currentQuestion}</div>
@@ -861,8 +976,10 @@ const exportChatHistoryPDF = async () => {
             <div className="history-drawer" onClick={e => e.stopPropagation()}>
              <div className="history-drawer-header">
                 <h4>Previous Questions</h4>
-                <button className="history-export-btn" onClick={exportChatHistoryPDF}>⬇ Export PDF</button>
-                <button className="history-close" onClick={() => setShowHistory(false)}>&times;</button>
+                <button className="history-export-btn" onClick={exportChatHistoryPDF}>
+                  <span>📄</span> Export PDF
+                </button>
+                <button className="history-close" onClick={() => setShowHistory(false)} aria-label="Close history">&times;</button>
               </div>
               <div className="history-drawer-body">
                 {chatHistory.length === 0 && <div className="text-muted">No previous questions yet.</div>}
@@ -931,6 +1048,66 @@ function DetailRow({ label, value, valueColor }) {
     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '4px 0', borderBottom: '1px solid #1A2438', gap: 8 }}>
       <span style={{ color: '#8B96AA', flexShrink: 0 }}>{label}</span>
       <span style={{ color: valueColor || '#E8ECF3', fontWeight: 600, textAlign: 'right' }}>{value}</span>
+    </div>
+  );
+}
+
+function RecommendMarkerIcon({ color }) {
+  // Exact same shape as the real marker rendered in CctvLayer's
+  // makeRecommendIcon -- kept in sync deliberately so the legend icon is a
+  // true miniature of what's actually on the map, not an approximation.
+  return (
+    <svg width="20" height="20" viewBox="0 0 40 40" style={{ flexShrink: 0 }}>
+      <path d="M20 2 L36 8 V18 C36 28 29 35 20 38 C11 35 4 28 4 18 V8 Z" fill={color} stroke="white" strokeWidth="1.5" />
+      <g transform="translate(11, 13)">
+        <rect x="0" y="3" width="14" height="9" rx="1.5" fill="white" />
+        <circle cx="7" cy="7.5" r="3" fill={color} />
+        <rect x="5.5" y="0" width="3" height="3" rx="0.5" fill="white" />
+      </g>
+    </svg>
+  );
+}
+
+function MapLegend({ cctvData, showRecommendations, showActiveCameras }) {
+  // Only show priority tiers that actually appear in the current recommendation
+  // data -- computed live from cctvData rather than hardcoded, so this can
+  // never drift out of sync with what's really on the map again.
+  const activePriorities = CCTV_LEGEND_PRIORITIES.filter(p =>
+    (cctvData?.topRecommendations || []).some(u => u.priority === p)
+  );
+
+  return (
+    <div className="map-legend">
+      <div className="map-legend-title">Legend</div>
+
+      <div className="map-legend-section">
+        <div className="map-legend-section-label">Crime Cases</div>
+        <LegendRow color={STATUS_COLORS['Under Investigation']} label="Under Investigation" />
+        <LegendRow color={STATUS_COLORS['Chargesheeted']} label="Chargesheeted" />
+        <LegendRow color={STATUS_COLORS['Closed']} label="Closed" />
+      </div>
+
+      {showRecommendations && activePriorities.length > 0 && (
+        <div className="map-legend-section">
+          <div className="map-legend-section-label">CCTV Recommendation Priority</div>
+          {activePriorities.map(p => (
+            <div className="map-legend-icon-row" key={p}>
+              <RecommendMarkerIcon color={CCTV_PRIORITY_COLORS[p]} />
+              <span>{p} Priority</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showActiveCameras && (
+        <div className="map-legend-section">
+          <div className="map-legend-section-label">Existing CCTV</div>
+          <div className="map-legend-icon-row">
+            <span className="map-legend-icon-badge map-legend-icon-active">📷</span>
+            <span>Active camera</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
