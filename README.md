@@ -53,6 +53,8 @@ Log in with:
 - **Username**: `Admin`
 - **Password**: `Admin123`
 
+---
+
 ## Key Features
 
 ### 1. **Officer Authentication** 🔐
