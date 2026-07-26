@@ -548,7 +548,7 @@ MIT License
 ## Quick Links
 
 - 🚀 **Live Platform**: https://ksp-fir-platform-60073928681.development.catalystserverless.in
-- 📦 **GitHub**: `<add your repository URL here>`
+- 📦 **GitHub**: https://github.com/ChandanaP30/KSP-Crime-Intelligence/
 
 ---
 
