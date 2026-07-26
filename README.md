@@ -13,17 +13,18 @@ A modern, AI-powered crime intelligence dashboard built on **Zoho Catalyst** (se
 ## 📋 Table of Contents
 
 1. [Overview](#overview)
-2. [Key Features](#key-features)
-3. [Technology Stack](#technology-stack)
-4. [Project Structure](#project-structure)
-5. [Prerequisites](#prerequisites)
-6. [Setup & Installation](#setup--installation)
-7. [Development](#development)
-8. [Deployment](#deployment)
-9. [API Documentation](#api-documentation)
-10. [Features Guide](#features-guide)
-11. [Troubleshooting](#troubleshooting)
-12. [Contributing](#contributing)
+2. [Demo Access](##Demo-Access)
+3. [Key Features](#key-features)
+4. [Technology Stack](#technology-stack)
+5. [Project Structure](#project-structure)
+6. [Prerequisites](#prerequisites)
+7. [Setup & Installation](#setup--installation)
+8. [Development](#development)
+9. [Deployment](#deployment)
+10. [API Documentation](#api-documentation)
+11. [Features Guide](#features-guide)
+12. [Troubleshooting](#troubleshooting)
+13. [Contributing](#contributing)
 
 ---
 
@@ -46,7 +47,7 @@ Built for the **KSP Datathon 2026** in partnership with Karnataka State Police, 
 
 ---
 
-## Demo Access (for evaluators)
+## Demo Access
 
 Log in with:
 - **Username**: `Admin`
