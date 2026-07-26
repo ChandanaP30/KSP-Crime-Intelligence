@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Eye, EyeOff, Lock, ShieldCheck, KeyRound, Loader2, ShieldAlert } from 'lucide-react';
+import { Eye, EyeOff, Lock, ShieldCheck, KeyRound, Loader2, ChevronDown, ChevronUp, ShieldAlert } from 'lucide-react';
 
 /**
  * KSP AI Crime Intelligence Platform — Login Page

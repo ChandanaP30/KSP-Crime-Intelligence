@@ -36,24 +36,12 @@ const KARNATAKA_BOUNDS = [
   [18.5, 78.6]
 ];
 
-// Risk-tier colors used by the Criminal Network graph and legend
-const RISK_HIGH = '#D94F4F';   // red   - 80-100
-const RISK_MED = '#E08A3E';    // orange - 50-79
-const RISK_LOW = '#5FA88C';    // green  - <50
+const RISK_HIGH = '#D94F4F';
+const RISK_MED = '#E08A3E';
+const RISK_LOW = '#5FA88C';
 const CASE_NODE_COLOR = '#4A7FB5';
 const FADE_COLOR = 'rgba(139, 150, 170, 0.12)';
 const FADE_LINK_COLOR = 'rgba(139, 150, 170, 0.06)';
-
-// CCTV recommendation priority colors -- single source of truth used by both
-// the actual map marker (CctvLayer) and the legend (MapLegend), so they can
-// never disagree with each other. Order here is the canonical display order;
-// the legend only shows whichever of these actually appear in the live data.
-const CCTV_PRIORITY_COLORS = { Critical: '#C1443C', High: '#E0792B', Medium: '#D9A441', Low: '#4A7FB5' };
-const CCTV_PRIORITY_ORDER = ['Critical', 'High', 'Medium', 'Low'];
-// Legend is explicitly restricted to only these two tiers -- Critical and
-// Medium are intentionally excluded and will never show here, regardless of
-// what's in the data, per explicit request.
-const CCTV_LEGEND_PRIORITIES = ['High', 'Low'];
 
 const AI_STAGES = [
   'Connecting to AI...',
@@ -132,14 +120,92 @@ function DistrictBoundaries({ selectedDistrictName }) {
     />
   );
 }
+
+function HotspotZoneLayer({ cases, selectedDistrict, showHotspotZones }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (document.getElementById('hotspot-zone-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'hotspot-zone-styles';
+    style.textContent = `
+      .hotspot-zone-ring {
+        transform-box: fill-box;
+        transform-origin: center;
+        pointer-events: none;
+        filter: blur(6px);
+      }
+      .hotspot-zone-ring--outer { animation: hotspot-pulse 3s ease-out infinite; }
+      .hotspot-zone-ring--mid   { animation: hotspot-pulse 3s ease-out infinite; animation-delay: 0.6s; }
+      @keyframes hotspot-pulse {
+        0%   { transform: scale(0.9); opacity: 0.85; }
+        70%  { transform: scale(1.1); opacity: 0.25; }
+        100% { transform: scale(1.2); opacity: 0.1; }
+      }
+    `;
+    document.head.appendChild(style);
+  }, []);
+
+  useEffect(() => {
+    // Only show once a district is picked - otherwise this is noise at state zoom.
+    if (!showHotspotZones || !selectedDistrict || !cases || cases.length === 0) return;
+
+    const points = cases.filter(c => c.latitude && c.longitude);
+    if (points.length === 0) return;
+
+    const centroidLat = points.reduce((s, c) => s + c.latitude, 0) / points.length;
+    const centroidLon = points.reduce((s, c) => s + c.longitude, 0) / points.length;
+
+    // Radius = distance to the farthest actual case, so the zone visually
+    // covers every case that happened here, not a generic fixed size.
+    const toRad = d => d * Math.PI / 180;
+    const distKm = (lat1, lon1, lat2, lon2) => {
+      const R = 6371;
+      const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+      const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    };
+    const maxDistKm = Math.max(...points.map(c => distKm(centroidLat, centroidLon, c.latitude, c.longitude)));
+    const radiusM = Math.max(400, maxDistKm * 1000 * 1.2); // 20% padding so edge cases aren't clipped
+
+    const intensity = Math.min(1, points.length / 50); // more cases = more intense red
+    const color = `rgb(${Math.round(255 - intensity * 45)}, ${Math.round(90 - intensity * 60)}, ${Math.round(70 - intensity * 55)})`;
+
+    const layerGroup = L.layerGroup();
+    const latlng = [centroidLat, centroidLon];
+
+    [
+      { mult: 1.0, opacity: 0.10 + intensity * 0.08, cls: 'hotspot-zone-ring hotspot-zone-ring--outer' },
+      { mult: 0.7, opacity: 0.16 + intensity * 0.12, cls: 'hotspot-zone-ring hotspot-zone-ring--mid' },
+      { mult: 0.45, opacity: 0.22 + intensity * 0.16, cls: 'hotspot-zone-ring' },
+      { mult: 0.22, opacity: 0.30 + intensity * 0.2, cls: 'hotspot-zone-ring' }
+    ].forEach(ring => {
+      L.circle(latlng, {
+        radius: radiusM * ring.mult,
+        weight: 0,
+        fillColor: color,
+        fillOpacity: ring.opacity,
+        className: ring.cls,
+        interactive: false
+      }).addTo(layerGroup);
+    });
+
+    layerGroup.addTo(map);
+    return () => { map.removeLayer(layerGroup); };
+  }, [cases, selectedDistrict, showHotspotZones, map]);
+
+  return null;
+}
 function CctvLayer({ cctvData, showCctv, showRecommendations, activeCameras, showActiveCameras }) { 
  const map = useMap();
 
   useEffect(() => {
     const layerGroup = L.layerGroup();
 
+    const PRIORITY_ICON_COLORS = { High: '#A6231F', Low: '#4A7FB5' };
+
     function makeRecommendIcon(priority) {
-      const color = CCTV_PRIORITY_COLORS[priority] || '#4A7FB5';
+      const color = PRIORITY_ICON_COLORS[priority] || '#4A7FB5';
       return L.divIcon({
         html: `<div class="cctv-recommend-marker" style="width:34px;height:34px;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.6));">
           <svg width="34" height="34" viewBox="0 0 40 40">
@@ -174,10 +240,10 @@ function CctvLayer({ cctvData, showCctv, showRecommendations, activeCameras, sho
     if (showRecommendations && cctvData?.topRecommendations) {
       cctvData.topRecommendations.forEach(u => {
         const marker = L.marker([u.centroidLat, u.centroidLon], { icon: makeRecommendIcon(u.priority) });
-        const priorityColor = CCTV_PRIORITY_COLORS[u.priority] || '#4A7FB5';
+        const priorityColor = PRIORITY_ICON_COLORS[u.priority] || '#4A7FB5';
         marker.bindPopup(
           `<div style="min-width:220px;">
-            <div class="mono" style="font-weight:bold;font-size:13px;">📹 CCTV Recommendation</div>
+            <div class="mono" style="font-weight:bold;font-size:13px;">CCTV Recommendation</div>
             <div style="display:inline-block;background:${priorityColor};color:white;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:bold;margin:4px 0;">${u.priority} Priority</div>
             <div style="margin-top:6px;">Risk Score: <strong>${u.riskScore}/100</strong></div>
             <div>Crime Density: <strong>${u.caseCount} cases</strong> (${u.highSeverityCount} high-severity)</div>
@@ -314,7 +380,7 @@ function AnalyticsDrawer({ cases, kpis, selectedDistrict, districts }) {
   }, [cases, topHotspots, resolution, selectedDistrict, districts]);
 
   return (
-    <div className="analytics-drawer-grid">
+     <div className="analytics-drawer-grid">
       <div className="chart-panel">
         <h4>📈 Crime Trend (Last 12 Months)</h4>
         <ResponsiveContainer width="100%" height={180}>
@@ -344,7 +410,7 @@ function AnalyticsDrawer({ cases, kpis, selectedDistrict, districts }) {
       </div>
 
       <div className="chart-panel">
-        <h4>🚓 Case Resolution Rate</h4>
+        <h4>Case Resolution Rate</h4>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, height: 180 }}>
           <ResponsiveContainer width="50%" height={140}>
             <PieChart>
@@ -370,7 +436,7 @@ function AnalyticsDrawer({ cases, kpis, selectedDistrict, districts }) {
       </div>
 
       <div className="chart-panel">
-        <h4>🤖 AI Crime Insights</h4>
+        <h4>AI Crime Insights</h4>
         <div style={{ fontSize: 13, color: '#C7CEDA', lineHeight: 1.6, padding: '8px 4px' }}>{insightText}</div>
       </div>
     </div>
@@ -380,10 +446,18 @@ function AnalyticsDrawer({ cases, kpis, selectedDistrict, districts }) {
 
 
 function App() {
-  const [user, setUser] = useState(() => {
-    const saved = sessionStorage.getItem('ksp_user');
-    return saved ? JSON.parse(saved) : null;
-  });
+  const [currentUser, setCurrentUser] = useState(() => {
+  try {
+    return JSON.parse(localStorage.getItem('ksp-user')) || null;
+  } catch {
+    return null;
+  }
+});
+
+const handleLogout = () => {
+  setCurrentUser(null);
+  localStorage.removeItem('ksp-user');
+};
   const [kpis, setKpis] = useState(null);
   const [cases, setCases] = useState([]);
   const [districts, setDistricts] = useState([]);
@@ -401,24 +475,24 @@ function App() {
 
   const SAMPLE_QUESTIONS = {
     en: [
-      { category: 'Location', icon: '📍', text: 'Show crime cases in Bengaluru.' },
-      { category: 'Location', icon: '📍', text: 'Show theft cases in Mysuru.' },
-      { category: 'Location', icon: '📍', text: 'Which district has the highest crime rate?' },
-      { category: 'Crime', icon: '🚨', text: 'Show all cyber crime cases.' },
-      { category: 'Crime', icon: '🚨', text: 'Show pending investigation cases.' },
-      { category: 'Crime', icon: '🚨', text: 'Show high severity crimes.' },
-      { category: 'AI Insights', icon: '🤖', text: 'Which areas need more CCTV cameras?' },
-      { category: 'AI Insights', icon: '🤖', text: "Predict tomorrow's crime hotspots." },
-      { category: 'AI Insights', icon: '🤖', text: 'Which police stations have the highest workload?' },
-      { category: 'Analytics', icon: '📊', text: 'Compare crime trends between Bengaluru and Mysuru.' },
-      { category: 'Analytics', icon: '📊', text: 'Show crime trend for the last 30 days.' },
-      { category: 'Analytics', icon: '📊', text: 'Which crime type is increasing the most?' }
+      { category: 'Location', icon: '1', text: 'Show crime cases in Bengaluru.' },
+      { category: 'Location', icon: '1', text: 'Show theft cases in Mysuru.' },
+      { category: 'Location', icon: '1', text: 'Which district has the highest crime rate?' },
+      { category: 'Crime', icon: '2', text: 'Show all cyber crime cases.' },
+      { category: 'Crime', icon: '2', text: 'Show pending investigation cases.' },
+      { category: 'Crime', icon: '2', text: 'Show high severity crimes.' },
+      { category: 'AI Insights', icon: '3', text: 'Which areas need more CCTV cameras?' },
+      { category: 'AI Insights', icon: '3', text: "Predict tomorrow's crime hotspots." },
+      { category: 'AI Insights', icon: '3', text: 'Which police stations have the highest workload?' },
+      { category: 'Analytics', icon: '4', text: 'Compare crime trends between Bengaluru and Mysuru.' },
+      { category: 'Analytics', icon: '4', text: 'Show crime trend for the last 30 days.' },
+      { category: 'Analytics', icon: '4', text: 'Which crime type is increasing the most?' }
     ],
     kn: [
-      { category: 'Kannada', icon: '🌐', text: 'ಬೆಂಗಳೂರಿನ ಅಪರಾಧ ಪ್ರಕರಣಗಳನ್ನು ತೋರಿಸಿ' },
-      { category: 'Kannada', icon: '🌐', text: 'ಮೈಸೂರಿನಲ್ಲಿ ಕಳ್ಳತನ ಪ್ರಕರಣಗಳನ್ನು ತೋರಿಸಿ' },
-      { category: 'Kannada', icon: '🌐', text: 'ಯಾವ ಜಿಲ್ಲೆಯಲ್ಲಿ ಹೆಚ್ಚು ಅಪರಾಧಗಳಿವೆ?' },
-      { category: 'Kannada', icon: '🌐', text: 'ಹೆಚ್ಚು ಸಿಸಿಟಿವಿ ಅಗತ್ಯವಿರುವ ಪ್ರದೇಶಗಳನ್ನು ತೋರಿಸಿ' }
+      { category: 'Kannada', icon: '5', text: 'A' },
+      { category: 'Kannada', icon: '5', text: 'B' },
+      { category: 'Kannada', icon: '5', text: 'C' },
+      { category: 'Kannada', icon: '5', text: 'D' }
     ]
   };
 
@@ -435,7 +509,7 @@ function App() {
   const [showAnalytics, setShowAnalytics] = useState(false);
   const responseTopRef = useRef(null);
   const responseAreaRef = useRef(null);
-const [lang, setLang] = useState('en'); // 'en' | 'kn'
+const [lang, setLang] = useState('en');
 const t = useLangStrings(lang);
 const [isListening, setIsListening] = useState(false);
 const [isSpeaking, setIsSpeaking] = useState(false);
@@ -454,6 +528,8 @@ const recognitionRef = useRef(null);
   const [recommendationLimit, setRecommendationLimit] = useState('20');
   const [activeCameras, setActiveCameras] = useState(null);
   const [showActiveCameras, setShowActiveCameras] = useState(false);
+  const [showHotspotZones, setShowHotspotZones] = useState(true);
+  
   const districtCounts = districts.map(d => ({
     name: d.districtName,
     count: cases.filter(c => c.districtId === d.rowId).length
@@ -529,7 +605,7 @@ const exportChatHistoryPDF = async () => {
   }
   if (!pdfExportRef.current) return;
 
-  await document.fonts.ready; // make sure the Kannada font is actually loaded before capturing
+  await document.fonts.ready;
 
   const canvas = await html2canvas(pdfExportRef.current, {
     scale: 2,
@@ -629,8 +705,6 @@ const exportChatHistoryPDF = async () => {
       .then(data => setDistricts(data.districts || []))
       .catch(err => console.error('Districts fetch error:', err));
 
-    // moved to its own effect below, so it can refetch when recommendationLimit changes
-
     fetch(`${FUNCTIONS_BASE}/cctv-recommend-function/?mode=active`)
       .then(res => res.json())
       .then(setActiveCameras)
@@ -663,12 +737,12 @@ const exportChatHistoryPDF = async () => {
       });
   }, [selectedDistrict, selectedStatus, selectedCrimeType]);
 
-  if (!user) {
+if (!currentUser) {
     return (
       <LoginPage
-        onAuthenticated={(u) => {
-          sessionStorage.setItem('ksp_user', JSON.stringify(u));
-          setUser(u);
+        onAuthenticated={(user) => {
+          setCurrentUser(user);
+          localStorage.setItem('ksp-user', JSON.stringify(user));
         }}
       />
     );
@@ -684,10 +758,17 @@ const exportChatHistoryPDF = async () => {
   className="lang-toggle-btn"
   onClick={() => setLang(prev => (prev === 'en' ? 'kn' : 'en'))}
 >
-  🌐 {t.langToggle}
+ 🌐 {t.langToggle}
 </button>
+
           <button className={activeTab === 'dashboard' ? 'tab-active' : ''} onClick={() => setActiveTab('dashboard')}>Dashboard</button>
           <button className={activeTab === 'network' ? 'tab-active' : ''} onClick={() => setActiveTab('network')}>Criminal Network</button>
+          <button className={activeTab === 'knowledge' ? 'tab-active' : ''} onClick={() => setActiveTab('knowledge')}>Knowledge Base</button>
+<button className={activeTab === 'patrol' ? 'tab-active' : ''} onClick={() => setActiveTab('patrol')}>AI Patrol Recommendation</button>
+<button className="logout-btn" onClick={handleLogout} title={currentUser.fullName || currentUser.username}>
+  🔓 Logout
+
+</button>
 
 <div
   ref={pdfExportRef}
@@ -702,7 +783,7 @@ const exportChatHistoryPDF = async () => {
     fontFamily: "'Noto Sans Kannada', 'Noto Sans', sans-serif"
   }}
 >
-  <h2 style={{ marginBottom: 4 }}>KSP Crime Intelligence Platform — AI Conversation Log</h2>
+  <h2 style={{ marginBottom: 4 }}>KSP Crime Intelligence Platform AI Conversation Log</h2>
   <div style={{ fontSize: 11, color: '#555', marginBottom: 16 }}>Exported: {new Date().toLocaleString()}</div>
   {chatHistory.map((item, idx) => (
     <div key={idx} style={{ marginBottom: 20, paddingBottom: 16, borderBottom: '1px solid #ddd' }}>
@@ -718,26 +799,16 @@ const exportChatHistoryPDF = async () => {
     </div>
   ))}
 </div>
-          <button
-            className="lang-toggle-btn"
-            onClick={() => {
-              sessionStorage.removeItem('ksp_user');
-              setUser(null);
-            }}
-            title="Log out"
-          >
-            🚪 Logout
-          </button>
         </nav>
       </header>
       {activeTab === 'dashboard' && (
       <>
       <div className="kpi-strip">
-        <KpiCard label="Total Cases" value={kpis?.totalCases ?? '\u2014'} />
-        <KpiCard label="Under Investigation" value={kpis?.underInvestigation ?? '\u2014'} color="var(--status-investigation)" />
-        <KpiCard label="Chargesheeted" value={kpis?.chargesheeted ?? '\u2014'} color="var(--status-chargesheeted)" />
-        <KpiCard label="Closed" value={kpis?.closed ?? '\u2014'} color="var(--status-closed)" />
-        <KpiCard label="Chargesheet Rate" value={kpis?.chargesheetRate ?? '\u2014'} />
+        <KpiCard label="Total Cases" value={kpis?.totalCases ?? '-'} />
+        <KpiCard label="Under Investigation" value={kpis?.underInvestigation ?? '-'} color="var(--status-investigation)" />
+        <KpiCard label="Chargesheeted" value={kpis?.chargesheeted ?? '-'} color="var(--status-chargesheeted)" />
+        <KpiCard label="Closed" value={kpis?.closed ?? '-'} color="var(--status-closed)" />
+        <KpiCard label="Chargesheet Rate" value={kpis?.chargesheetRate ?? '-'} />
       </div>
 
       <div className="main-layout">
@@ -796,6 +867,10 @@ const exportChatHistoryPDF = async () => {
               Existing CCTV Cameras
             </label>
           </div>
+            <label className="toggle-label">
+  <input type="checkbox" checked={showHotspotZones} onChange={e => setShowHotspotZones(e.target.checked)} />
+  Crime Hotspot Zones
+</label>
 
           {cctvData && (
             <div className="cctv-summary mono">
@@ -825,8 +900,9 @@ const exportChatHistoryPDF = async () => {
             <DistrictBoundaries selectedDistrictName={DB_TO_GEOJSON_NAME[districts.find(d => d.rowId === selectedDistrict)?.districtName] || null} />
             <ClusterLayer cases={cases} />
             <CctvLayer cctvData={cctvData} showCctv={showCctv} showRecommendations={showRecommendations} activeCameras={activeCameras} showActiveCameras={showActiveCameras} />
+            <HotspotZoneLayer cases={cases} selectedDistrict={selectedDistrict} showHotspotZones={showHotspotZones} />
           </MapContainer>
- <MapLegend cctvData={cctvData} showRecommendations={showRecommendations} showActiveCameras={showActiveCameras} />
+ <MapLegend showRecommendations={showRecommendations} showActiveCameras={showActiveCameras} />
                  </div>
 
       <aside className="side-panel">
@@ -837,12 +913,8 @@ const exportChatHistoryPDF = async () => {
             onClick={() => setShowHistory(true)}
             disabled={chatHistory.length === 0}
           >
-            <svg className="history-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-              <path d="M3 3v5h5" />
-              <path d="M12 7v5l4 2" />
-            </svg>
-            History
+           📜 History
+
           </button>
         </div>
         <p className="disclaimer">This assistant never references caste or religion data, which is excluded from the system by design.</p>
@@ -850,10 +922,10 @@ const exportChatHistoryPDF = async () => {
         <div className="ai-response-area" ref={responseAreaRef}>
           {!currentQuestion && !aiLoading && (
   <div className="ai-welcome-screen">
-    <div className="ai-welcome-icon">✨</div>
+    <div className="ai-welcome-icon">🤖</div>
     <h2 className="ai-welcome-title">AI Crime Assistant</h2>
     <p className="ai-welcome-subtitle">
-      Ask about crime trends, districts, and hotspots — in English or Kannada.
+      Ask about crime trends, districts, and hotspots in English or Kannada.
     </p>
     <div className="ai-welcome-questions">
       {SUGGESTED_QUESTIONS.map((q, i) => (
@@ -894,6 +966,7 @@ const exportChatHistoryPDF = async () => {
                           {i < loadingStageIndex ? '✓' : i === loadingStageIndex ? '●' : '○'}
                         </span>
                         {s}
+
                       </li>
                     ))}
                   </ul>
@@ -903,7 +976,7 @@ const exportChatHistoryPDF = async () => {
               {!aiLoading && currentAnswer && (
                 <div className="analysis-body">
 <button
-  className="speak-btn"
+   className="speak-btn"
   onClick={() => (isSpeaking ? stopSpeaking() : speakAnswer(currentAnswer.insight + ' ' + (currentAnswer.recommendation || '')))}
 >
   {isSpeaking ? `⏹ ${t.aiStopSpeak}` : `🔊 ${t.aiSpeak}`}
@@ -932,6 +1005,7 @@ const exportChatHistoryPDF = async () => {
                       <div className="ai-recommendation">{currentAnswer.recommendation}</div>
                     </div>
                   )}
+
                   {typeof currentAnswer.confidence === 'number' && (
                     <div className="ai-section">
                       <span className="ai-section-label">🎯 Confidence</span>
@@ -967,7 +1041,7 @@ const exportChatHistoryPDF = async () => {
   {isListening ? '🔴' : '🎤'}
 </button>
           <button className="ai-submit" onClick={handleAskAI} disabled={aiLoading || !aiQuestion.trim()}>
-            {aiLoading ? '…' : 'Ask'}
+            {aiLoading ? '...' : 'Ask'}
           </button>
         </div>
 
@@ -976,10 +1050,8 @@ const exportChatHistoryPDF = async () => {
             <div className="history-drawer" onClick={e => e.stopPropagation()}>
              <div className="history-drawer-header">
                 <h4>Previous Questions</h4>
-                <button className="history-export-btn" onClick={exportChatHistoryPDF}>
-                  <span>📄</span> Export PDF
-                </button>
-                <button className="history-close" onClick={() => setShowHistory(false)} aria-label="Close history">&times;</button>
+                <button className="history-export-btn" onClick={exportChatHistoryPDF}>Export PDF</button>
+                <button className="history-close" onClick={() => setShowHistory(false)}>&times;</button>
               </div>
               <div className="history-drawer-body">
                 {chatHistory.length === 0 && <div className="text-muted">No previous questions yet.</div>}
@@ -1006,7 +1078,7 @@ const exportChatHistoryPDF = async () => {
 
       <div className="analytics-toggle-row">
         <button className="analytics-toggle-btn" onClick={() => setShowAnalytics(v => !v)}>
-          📊 Analytics {showAnalytics ? '▲' : '▼'}
+          Analytics {showAnalytics ? 'up' : 'down'}
         </button>
       </div>
 
@@ -1021,6 +1093,17 @@ const exportChatHistoryPDF = async () => {
           <NetworkGraphPanel functionsBase={FUNCTIONS_BASE} />
         </div>
       )}
+
+      {activeTab === 'knowledge' && (
+        <div className="kb-tab-content">
+          <KnowledgeBasePanel functionsBase={FUNCTIONS_BASE} lang={lang} />
+        </div>
+      )}
+      {activeTab === 'patrol' && (
+        <div className="patrol-tab-content">
+          <PatrolRecommendationPanel functionsBase={FUNCTIONS_BASE} districts={districts} initialDistrictId={selectedDistrict} />
+        </div>
+      )}
     </div>
   );
 }
@@ -1033,6 +1116,118 @@ function KpiCard({ label, value, color }) {
     </div>
   );
 }
+
+function PatrolRecommendationPanel({ functionsBase, districts, initialDistrictId }) {
+  const [selectedDistrict, setSelectedDistrict] = useState(initialDistrictId || '');
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const fetchRecommendations = () => {
+    setLoading(true);
+    const params = new URLSearchParams();
+    if (selectedDistrict) params.append('district', selectedDistrict);
+    params.append('limit', '30');
+    fetch(`${functionsBase}/patrol-recommend-function/?${params.toString()}`)
+      .then(res => res.json())
+      .then(result => {
+        setData(result);
+        setLoading(false);
+      })
+      .catch(err => {
+        console.error('Patrol recommendation fetch error:', err);
+        setLoading(false);
+      });
+  };
+
+  useEffect(() => {
+    fetchRecommendations();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const priorityColor = (p) => p === 'High' ? '#A6231F' : '#4A7FB5';
+
+  return (
+    <div className="patrol-panel">
+      <div className="patrol-panel-header">
+        <h3>AI Patrol Recommendation</h3>
+        <div className="patrol-panel-controls">
+          <select value={selectedDistrict} onChange={e => setSelectedDistrict(e.target.value)}>
+            <option value="">All Districts</option>
+            {(districts || []).map(d => (
+              <option key={d.rowId} value={d.rowId}>{d.districtName}</option>
+            ))}
+          </select>
+          <button className="patrol-generate-btn" onClick={fetchRecommendations} disabled={loading}>
+            {loading ? 'Generating...' : 'Generate Patrol Plan'}
+          </button>
+        </div>
+      </div>
+
+      {loading && <div className="patrol-panel-loading mono">Analyzing crime data and generating patrol recommendations...</div>}
+
+      {!loading && data && (
+        <>
+          <div className="patrol-summary-strip">
+            <StatCard label="Total Hotspots" value={data.totalHotspots ?? 0} />
+            <StatCard label="High Priority" value={data.highPriorityCount ?? 0} />
+            <StatCard label="Low Priority" value={data.lowPriorityCount ?? 0} />
+          </div>
+
+          <div className="patrol-cards-list">
+            {(data.recommendations || []).map(r => (
+              <div key={r.unitId} className="patrol-card">
+                <div className="patrol-card-header">
+                  <div>
+                    <div className="patrol-card-area">{r.areaName}</div>
+                    <div className="patrol-card-district mono">{r.district}</div>
+                  </div>
+                  <div className="patrol-card-badges">
+                    <span className="patrol-priority-badge" style={{ background: priorityColor(r.priority) }}>
+                      {r.priority} Priority
+                    </span>
+                    <span className="patrol-ai-badge">{r.badge}</span>
+                  </div>
+                </div>
+
+                <div className="patrol-card-stats">
+                  <div className="patrol-stat">
+                    <span className="patrol-stat-label">Recommended Officers</span>
+                    <span className="patrol-stat-value">{r.recommendedOfficers}</span>
+                  </div>
+                  <div className="patrol-stat">
+                    <span className="patrol-stat-label">Suggested Patrol Time</span>
+                    <span className="patrol-stat-value">{r.suggestedPatrolTime}</span>
+                  </div>
+                  <div className="patrol-stat">
+                    <span className="patrol-stat-label">Nearby CCTV</span>
+                    <span className="patrol-stat-value">{r.nearbyCCTVCount} camera(s){r.nearestCameraKm !== null ? ` (${r.nearestCameraKm} km)` : ''}</span>
+                  </div>
+                  <div className="patrol-stat">
+                    <span className="patrol-stat-label">Recent Crime Count</span>
+                    <span className="patrol-stat-value">{r.recentCrimeCount}</span>
+                  </div>
+                  <div className="patrol-stat">
+                    <span className="patrol-stat-label">Confidence</span>
+                    <span className="patrol-stat-value">{r.confidence}%</span>
+                  </div>
+                </div>
+
+                <div className="patrol-card-explanation">{r.explanation}</div>
+              </div>
+            ))}
+          </div>
+
+          {(!data.recommendations || data.recommendations.length === 0) && (
+            <div className="patrol-panel-empty">
+              <p>No patrol recommendations for the selected filter.</p>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 
 function StatCard({ label, value }) {
   return (
@@ -1052,30 +1247,7 @@ function DetailRow({ label, value, valueColor }) {
   );
 }
 
-function RecommendMarkerIcon({ color }) {
-  // Exact same shape as the real marker rendered in CctvLayer's
-  // makeRecommendIcon -- kept in sync deliberately so the legend icon is a
-  // true miniature of what's actually on the map, not an approximation.
-  return (
-    <svg width="20" height="20" viewBox="0 0 40 40" style={{ flexShrink: 0 }}>
-      <path d="M20 2 L36 8 V18 C36 28 29 35 20 38 C11 35 4 28 4 18 V8 Z" fill={color} stroke="white" strokeWidth="1.5" />
-      <g transform="translate(11, 13)">
-        <rect x="0" y="3" width="14" height="9" rx="1.5" fill="white" />
-        <circle cx="7" cy="7.5" r="3" fill={color} />
-        <rect x="5.5" y="0" width="3" height="3" rx="0.5" fill="white" />
-      </g>
-    </svg>
-  );
-}
-
-function MapLegend({ cctvData, showRecommendations, showActiveCameras }) {
-  // Only show priority tiers that actually appear in the current recommendation
-  // data -- computed live from cctvData rather than hardcoded, so this can
-  // never drift out of sync with what's really on the map again.
-  const activePriorities = CCTV_LEGEND_PRIORITIES.filter(p =>
-    (cctvData?.topRecommendations || []).some(u => u.priority === p)
-  );
-
+function MapLegend({ showRecommendations, showActiveCameras }) {
   return (
     <div className="map-legend">
       <div className="map-legend-title">Legend</div>
@@ -1087,15 +1259,11 @@ function MapLegend({ cctvData, showRecommendations, showActiveCameras }) {
         <LegendRow color={STATUS_COLORS['Closed']} label="Closed" />
       </div>
 
-      {showRecommendations && activePriorities.length > 0 && (
+      {showRecommendations && (
         <div className="map-legend-section">
-          <div className="map-legend-section-label">CCTV Recommendation Priority</div>
-          {activePriorities.map(p => (
-            <div className="map-legend-icon-row" key={p}>
-              <RecommendMarkerIcon color={CCTV_PRIORITY_COLORS[p]} />
-              <span>{p} Priority</span>
-            </div>
-          ))}
+          <div className="map-legend-section-label">CCTV Recommendation Markers</div>
+          <LegendRow color="#A6231F" label="High Priority" shape="shield" />
+          <LegendRow color="#4A7FB5" label="Low Priority" shape="shield" />
         </div>
       )}
 
@@ -1103,7 +1271,7 @@ function MapLegend({ cctvData, showRecommendations, showActiveCameras }) {
         <div className="map-legend-section">
           <div className="map-legend-section-label">Existing CCTV</div>
           <div className="map-legend-icon-row">
-            <span className="map-legend-icon-badge map-legend-icon-active">📷</span>
+            <span className="map-legend-icon-badge map-legend-icon-active">Cam</span>
             <span>Active camera</span>
           </div>
         </div>
@@ -1117,6 +1285,15 @@ function LegendRow({ color, label, line, dashed, shape }) {
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: '#C7CEDA', padding: '3px 0' }}>
       {line ? (
         <div style={{ width: 20, height: 0, borderTop: dashed ? `2px dashed ${color}` : `2px solid ${color}` }} />
+      ) : shape === 'shield' ? (
+        <svg width="16" height="16" viewBox="0 0 40 40" style={{ flexShrink: 0 }}>
+          <path d="M20 2 L36 8 V18 C36 28 29 35 20 38 C11 35 4 28 4 18 V8 Z" fill={color} stroke="white" strokeWidth="1.5" />
+          <g transform="translate(11, 13)">
+            <rect x="0" y="3" width="14" height="9" rx="1.5" fill="white" />
+            <circle cx="7" cy="7.5" r="3" fill={color} />
+            <rect x="5.5" y="0" width="3" height="3" rx="0.5" fill="white" />
+          </g>
+        </svg>
       ) : (
         <div style={{ width: 10, height: 10, borderRadius: shape === 'square' ? 2 : '50%', background: color, flexShrink: 0 }} />
       )}
@@ -1150,7 +1327,7 @@ function ResizeHandle({ currentWidth, setWidth, min, max, direction, defaultWidt
     <div
       onMouseDown={handleMouseDown}
       onDoubleClick={() => setWidth(defaultWidth)}
-      title="Drag to resize · double-click to reset"
+      title="Drag to resize, double-click to reset"
       style={{ width: 10, flexShrink: 0, cursor: 'col-resize', alignSelf: 'stretch', position: 'relative' }}
     >
       <div style={{ position: 'absolute', left: 4, top: 0, bottom: 0, width: 2, background: '#232D42', borderRadius: 2 }} />
@@ -1248,10 +1425,6 @@ const [filterWidth, setFilterWidth] = useState(() => {
     return [...s].sort();
   }, [offenderNodes]);
 
-  // Years derived from each offender's active date range (firstCaseDate..lastCaseDate).
-  // Filtering by year checks whether that range overlaps the selected year --
-  // this is an approximation (we only have first/last per offender, not every
-  // individual case date at this layer), but it's honest and clearly scoped.
   const allYears = useMemo(() => {
     const s = new Set();
     offenderNodes.forEach(n => {
@@ -1318,9 +1491,6 @@ const [filterWidth, setFilterWidth] = useState(() => {
     };
   }, [showCaseNetwork, filteredOffenderNodes, filteredIds, offenderEdgesAll, caseEdgesAll, caseNodesAll]);
 
-  // Linked cases for the selected offender (real data: pulled from the full,
-  // unfiltered case-edge/case-node set, not the currently-displayed graph --
-  // so this list is always complete for that offender regardless of filters).
   const selectedOffenderCases = useMemo(() => {
     if (!selectedOffender) return [];
     const myCaseEdges = caseEdgesAll.filter(e => e.source === selectedOffender.id);
@@ -1553,12 +1723,12 @@ const [filterWidth, setFilterWidth] = useState(() => {
                   onClick={() => fgRef.current && fgRef.current.zoom(fgRef.current.zoom() * 0.77, 200)}
                   title="Zoom out"
                   style={{ width: 28, height: 28, background: '#111827', border: '1px solid #232D42', color: '#E8ECF3', borderRadius: 4, cursor: 'pointer', fontSize: 14 }}
-                >−</button>
+                >-</button>
                 <button
                   onClick={() => fgRef.current && fgRef.current.zoomToFit(400, 50)}
                   title="Reset view"
                   style={{ width: 28, height: 28, background: '#111827', border: '1px solid #232D42', color: '#E8ECF3', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}
-                >⤢</button>
+                >reset</button>
               </div>
               <ForceGraph2D
                 ref={fgRef}
@@ -1632,7 +1802,7 @@ const [filterWidth, setFilterWidth] = useState(() => {
                 {selectedOffenderCases.map(c => (
                   <div key={c.id} style={{ fontSize: 11, color: '#C7CEDA', padding: '6px 0', borderBottom: '1px solid #1A2438' }}>
                     <div style={{ fontWeight: 600, color: '#E8ECF3' }}>{c.label}</div>
-                    <div style={{ color: '#8B96AA' }}>{c.crimeType} · {c.status}{c.district ? ` · ${c.district}` : ''}</div>
+                    <div style={{ color: '#8B96AA' }}>{c.crimeType} - {c.status}{c.district ? ` - ${c.district}` : ''}</div>
                     {c.dateOfFIR && <div style={{ color: '#8B96AA' }}>{c.dateOfFIR}</div>}
                   </div>
                 ))}
@@ -1661,6 +1831,245 @@ const [filterWidth, setFilterWidth] = useState(() => {
         <span>Most Connected: <strong style={{ color: '#E8ECF3' }}>{stats.mostConnected?.label || 'N/A'}</strong> {stats.mostConnected ? `(${stats.mostConnected.associateCount} associates)` : ''}</span>
         <span>Avg Associates: <strong style={{ color: '#E8ECF3' }}>{stats.avgAssociates}</strong></span>
         <span>Repeat Offender Rate: <strong style={{ color: '#E8ECF3' }}>{stats.repeatOffenderPct}%</strong></span>
+      </div>
+    </div>
+  );
+}
+
+const KB_EXAMPLE_PROMPTS = [
+  "What is the procedure for cyber fraud investigation?",
+  "Which sections apply for vehicle theft?",
+  "Show the SOP for missing person cases.",
+  "What are the guidelines for evidence collection?"
+];
+
+function formatFileSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function KnowledgeBasePanel({ functionsBase, lang }) {
+  const [documents, setDocuments] = useState([]);
+  const [loadingDocs, setLoadingDocs] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState(null);
+  const fileInputRef = useRef(null);
+
+  const [question, setQuestion] = useState('');
+  const [asking, setAsking] = useState(false);
+  const [answer, setAnswer] = useState(null);
+  const [kbListening, setKbListening] = useState(false);
+  const kbRecognitionRef = useRef(null);
+
+  const startKbVoiceInput = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert('Voice input is not supported in this browser. Try Chrome.');
+      return;
+    }
+    const recognition = new SpeechRecognition();
+    recognition.lang = lang === 'kn' ? 'kn-IN' : 'en-IN';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => setKbListening(true);
+    recognition.onend = () => setKbListening(false);
+    recognition.onerror = (event) => {
+      setKbListening(false);
+      console.error('KB speech recognition error:', event.error, event);
+      alert(`Voice input error: ${event.error}`);
+    };
+    recognition.onresult = (event) => {
+      const transcript = event.results[0][0].transcript;
+      setQuestion(transcript);
+    };
+
+    kbRecognitionRef.current = recognition;
+    recognition.start();
+  };
+
+  const stopKbVoiceInput = () => {
+    kbRecognitionRef.current?.stop();
+    setKbListening(false);
+  };
+
+  const refreshDocuments = () => {
+    setLoadingDocs(true);
+    fetch(`${functionsBase}/kb-function/?mode=list`)
+      .then(res => res.json())
+      .then(data => {
+        setDocuments(data.documents || []);
+        setLoadingDocs(false);
+      })
+      .catch(err => {
+        console.error('KB document list error:', err);
+        setLoadingDocs(false);
+      });
+  };
+
+  useEffect(() => { refreshDocuments(); }, [functionsBase]);
+
+  const handleFileSelect = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    setUploadError(null);
+    setUploading(true);
+
+    for (const file of files) {
+      const ext = file.name.split('.').pop().toLowerCase();
+      if (!['pdf', 'docx', 'txt'].includes(ext)) {
+        setUploadError(`"${file.name}" is not a supported file type. Only PDF, DOCX, and TXT are supported.`);
+        continue;
+      }
+      try {
+        const base64 = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result.split(',')[1]);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+
+        const res = await fetch(`${functionsBase}/kb-function/?mode=upload`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileName: file.name, fileType: ext, fileBase64: base64 })
+        });
+        const data = await res.json();
+        if (data.error) setUploadError(data.error);
+      } catch (err) {
+        setUploadError(`Failed to upload "${file.name}": ${err.message}`);
+      }
+    }
+
+    setUploading(false);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    refreshDocuments();
+  };
+
+  const handleDelete = (documentId) => {
+    fetch(`${functionsBase}/kb-function/?mode=delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ documentId })
+    })
+      .then(res => res.json())
+      .then(() => refreshDocuments())
+      .catch(err => console.error('KB delete error:', err));
+  };
+
+  const handleAsk = (q) => {
+    const finalQuestion = q || question;
+    if (!finalQuestion.trim()) return;
+    setAsking(true);
+    setAnswer(null);
+    fetch(`${functionsBase}/kb-function/?mode=query`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: finalQuestion, preferredLang: lang })
+    })
+      .then(res => res.json())
+      .then(data => {
+        setAnswer(data);
+        setAsking(false);
+      })
+      .catch(err => {
+        console.error('KB query error:', err);
+        setAnswer({ answer: 'Something went wrong. Please try again.', groundedInKB: false, citations: [] });
+        setAsking(false);
+      });
+  };
+
+  return (
+    <div className="kb-panel">
+      <div className="kb-upload-section">
+        <h3>Upload Police Documents</h3>
+        <p className="kb-subtext">SOPs, IPC/BNS sections, circulars, investigation manuals, cybercrime guidelines, and departmental policies. Supported formats: PDF, DOCX, TXT.</p>
+
+        <input
+          type="file"
+          ref={fileInputRef}
+          multiple
+          accept=".pdf,.docx,.txt"
+          onChange={handleFileSelect}
+          style={{ display: 'none' }}
+        />
+        <button className="kb-upload-btn" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+          {uploading ? 'Uploading...' : '📁 Upload Documents'}
+
+        </button>
+        {uploadError && <div className="kb-upload-error">{uploadError}</div>}
+
+        <div className="kb-doc-list">
+          <div className="kb-doc-list-header">
+            <span>Uploaded Documents</span>
+            <span className="kb-doc-count">{documents.length} indexed</span>
+          </div>
+          {loadingDocs && <div className="kb-doc-loading">Loading...</div>}
+          {!loadingDocs && documents.length === 0 && (
+            <div className="kb-doc-empty">No documents uploaded yet. Upload an SOP, manual, or circular to get started.</div>
+          )}
+          {documents.map(doc => (
+            <div className="kb-doc-item" key={doc.id}>
+              <div className="kb-doc-info">
+                <div className="kb-doc-name">{doc.name}</div>
+                <div className="kb-doc-meta">
+                  {doc.fileType.toUpperCase()} - {formatFileSize(doc.fileSizeBytes)} - {new Date(doc.uploadedDate).toLocaleDateString()} - {doc.chunkCount} chunks
+                </div>
+              </div>
+              <button className="kb-doc-delete" onClick={() => handleDelete(doc.id)} title="Delete document">Del</button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="kb-query-section">
+        <h3>Ask the Knowledge Base</h3>
+        <p className="kb-subtext">Answers come only from your uploaded documents -- not general knowledge. Supports English and Kannada.</p>
+
+        <div className="kb-example-prompts">
+          {KB_EXAMPLE_PROMPTS.map((p, i) => (
+            <button key={i} className="kb-example-chip" onClick={() => { setQuestion(p); handleAsk(p); }}>{p}</button>
+          ))}
+        </div>
+
+       <div className="kb-query-input-row">
+          <textarea
+            className="kb-query-input"
+            placeholder="Ask a question about your uploaded documents..."
+            value={question}
+            onChange={e => setQuestion(e.target.value)}
+            rows={2}
+          />
+          <button
+            className={`kb-mic-btn ${kbListening ? 'mic-active' : ''}`}
+            type="button"
+            title={kbListening ? 'Listening...' : 'Voice input'}
+            onClick={kbListening ? stopKbVoiceInput : startKbVoiceInput}
+          >
+            {kbListening ? '🔴' : '🎤'}
+          </button>
+          <button className="kb-query-submit" onClick={() => handleAsk()} disabled={asking || !question.trim()}>
+            {asking ? 'Searching...' : 'Ask'}
+          </button>
+        </div>
+
+        {answer && (
+          <div className="kb-answer-card">
+            {answer.groundedInKB && (
+              <div className="kb-grounded-badge">📚 Answer generated from Police Knowledge Base</div>
+            )}
+            <div className="kb-answer-text">{answer.answer}</div>
+            {answer.citations && answer.citations.length > 0 && (
+              <div className="kb-citations">
+                <div className="kb-citations-label">Sources</div>
+                {answer.citations.map((c, i) => (
+                  <div className="kb-citation-item" key={i}>{c.documentName} - {c.source}</div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
