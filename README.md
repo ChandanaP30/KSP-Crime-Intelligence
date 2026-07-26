@@ -2,10 +2,10 @@
 
 **Karnataka State Police FIR Platform — KSP Datathon 2026**
 
-A modern, AI-powered crime intelligence dashboard built on **Zoho Catalyst** (serverless Node.js backend) with a **React + Vite** frontend, providing real-time crime data visualization, CCTV recommendations, AI chatbot analysis, and criminal network mapping for law enforcement agencies.
+A modern, AI-powered crime intelligence dashboard built on **Zoho Catalyst** (serverless Node.js backend) with a **React + Vite** frontend, providing real-time crime data visualization, CCTV recommendations, AI patrol planning, a document-grounded AI knowledge base, an AI chatbot, and criminal network mapping for law enforcement agencies.
 
-**Status**: ✅ Production Ready  
-**Version**: 1.0.0  
+**Status**: ✅ Production Ready
+**Version**: 1.0.0
 **Last Updated**: July 26, 2026
 
 ---
@@ -33,10 +33,13 @@ The **KSP Crime Intelligence Platform** is a comprehensive law enforcement intel
 
 - **Visualize Crime Data** on an interactive Karnataka map with district overlays
 - **Detect Crime Hotspots** using intelligent clustering and priority-based CCTV recommendations
-- **Analyze Patterns** via AI-powered chatbot with natural language understanding
+- **Recommend AI-Generated Patrol Plans** with officer counts, patrol timing, and confidence scores per area
+- **Analyze Patterns** via an AI-powered chatbot with natural language understanding and tool-calling
+- **Answer Questions from Uploaded Documents** (SOPs, circulars, IPC/BNS references) via a grounded AI knowledge base with citations
 - **Map Criminal Networks** through relationship visualization and graph analysis
 - **Track Case Status** with real-time KPI dashboards (total cases, under investigation, chargesheeted, closed)
-- **Support Multiple Languages** with native Kannada support alongside English
+- **Support Multiple Languages** with native Kannada support alongside English, including voice input and output
+- **Authenticate Officers** with a secure, role-based login screen
 - **Export Reports** in PDF format for police command centers
 
 Built for the **KSP Datathon 2026** in partnership with Karnataka State Police, leveraging serverless architecture for scalability and cost-effectiveness.
@@ -45,112 +48,93 @@ Built for the **KSP Datathon 2026** in partnership with Karnataka State Police, 
 
 ## Key Features
 
-### 1. **KPI Dashboard** 📊
+### 1. **Officer Authentication** 🔐
+- Secure login screen (`LoginPage.jsx`) gates the entire dashboard
+- Passwords hashed with PBKDF2 (100,000 iterations) and a per-user salt — never stored in plain text
+- Officer accounts stored in a Catalyst `Officers` table (`Username`, `Role`, `FullName`, `Status`)
+- Session persists across page refreshes via `localStorage`; logout available from the top navigation
+
+### 2. **KPI Dashboard** 📊
 - Real-time statistics cards showing:
   - Total Crime Cases
   - Cases Under Investigation
   - Chargesheeted Cases
   - Closed Cases
-- Live data refresh every 5 seconds
 - Color-coded status indicators
 
-### 2. **Crime Intelligence Map** 🗺️
+### 3. **Crime Intelligence Map** 🗺️
 - Interactive Leaflet map of Karnataka state
-- Marker clustering for performance (max 60px cluster radius)
+- Marker clustering for performance
 - District boundary overlays with color highlighting
 - Crime case markers color-coded by status:
-  - 🟡 Under Investigation (Gold: #D9A441)
-  - 🔵 Chargesheeted (Blue: #4A7FB5)
-  - 🟢 Closed (Green: #5FA88C)
-- Zoom controls and pan functionality
-- Case popup details on marker click
+  - 🟡 Under Investigation (#D9A441)
+  - 🔵 Chargesheeted (#4A7FB5)
+  - 🟢 Closed (#5FA88C)
+- Pulsing hotspot zone overlay around the centroid of cases in a selected district, sized to actually enclose the farthest case (not a fixed radius)
+- Zoom controls, pan, and case popup details on marker click
+- A dynamic legend that only shows the layers currently toggled on
 
-### 3. **AI-Powered Chatbot** 🤖
-- Natural language query processing via Catalyst serverless functions
-- Tool-calling capability to filter dashboard data dynamically:
-  - Filter by district name
-  - Filter by crime type
-  - Filter by case status
-  - Show CCTV recommendations
-  - Show active cameras
-  - Show crime hotspots
-- 12 pre-defined sample questions in English + Kannada
-- Confidence score for each AI response
-- Chat history with persistence (localStorage)
-- Voice input support (uses Web Speech API)
-- Voice output (text-to-speech for responses)
-- PDF export of conversation history
+### 4. **AI-Powered Chatbot** 🤖
+- Natural language query processing via a Catalyst serverless function with tool-calling
+- Tools available to the model: crime stats lookup, district comparison, hotspot detection, CCTV recommendations, and risk scoring — all backed by real ZCQL queries, never fabricated
+- Can dynamically drive the dashboard: filter by district, crime type, or status; show hotspots; show CCTV layers
+- Pre-built sample questions in English and Kannada
+- Confidence score with every AI response
+- Chat history with a dedicated history drawer
+- Voice input (Web Speech API) and voice output (browser speech synthesis) in both English and Kannada
+- PDF export of the full AI conversation history (rendered via html2canvas + jsPDF so Kannada text exports correctly)
 
-### 4. **CCTV Recommendation Engine** 📹
-- Intelligent priority-based hotspot detection
-- Risk score calculation (0-100) based on:
-  - Crime case density
-  - High-severity incident count
-  - Existing CCTV coverage gaps
+### 5. **AI Knowledge Base (RAG)** 📚
+- Upload SOPs, circulars, IPC/BNS references, and departmental policies as PDF, DOCX, or TXT
+- Real per-page text extraction for PDFs (via pdf.js) and paragraph-based section splitting for DOCX/TXT
+- BM25 lexical retrieval over document chunks — no external embeddings API required
+- Answers are grounded strictly in the uploaded documents, with real citations (document name + page/section)
+- Explicitly reports when no relevant information is found rather than guessing
+- Supports both English and Kannada queries, with voice input and a language-matching answer
+
+### 6. **AI Patrol Recommendation** 🚓
+- Generates a data-driven patrol plan per area: recommended officer count, suggested patrol time window, priority tier, and a plain-language explanation
+- Cross-references nearby existing CCTV coverage and recent crime counts per area
+- Confidence score per recommendation
+- Filterable by district; regenerate on demand
+
+### 7. **CCTV Recommendation Engine** 📹
+- Priority-based hotspot detection for CCTV installation planning
+- Risk score calculation (0–100) based on crime case density, high-severity incident count, and existing CCTV coverage gaps
 - Two-tier prioritization:
-  - **High Priority** (risk score ≥ 80): Red (#A6231F)
-  - **Low Priority** (risk score < 80): Blue (#4A7FB5)
-- Displays:
-  - Recommended camera count
-  - Expected coverage improvement percentage
-  - Reason for recommendation
-- Clustered marker view with spiderify on max zoom
-- Configurable recommendation limit (default 20)
+  - **High Priority**: #A6231F
+  - **Low Priority**: #4A7FB5
+- Displays recommended camera count, expected coverage improvement %, and the reasoning behind each recommendation
+- Clustered marker view; configurable recommendation limit
 
-### 5. **Criminal Network Graph** 🔗
-- Force-directed graph visualization using react-force-graph-2d
-- Node types:
-  - **Case nodes** (blue): FIR records
-  - **Risk nodes** (color-coded): High (#D94F4F), Medium (#E08A3E), Low (#5FA88C)
-- Interactive pan, zoom, and drag functionality
-- Relationship links between connected entities
-- Hover details on nodes and edges
-- Dynamic node coloring by risk level
+### 8. **Criminal Network Graph** 🔗
+- Force-directed graph visualization (react-force-graph-2d) of repeat offenders and their linked cases
+- Risk-tier node coloring: High (#D94F4F), Medium (#E08A3E), Low (#5FA88C)
+- Filter by district, crime type, year, and free-text search; option to hide isolated nodes
+- Click a node to see full case history, crime-type breakdown, and an on-demand AI-generated summary
+- Resizable filter and detail panels
 
-### 6. **Hotspot Zone Visualization** 🔴
-- Pulsing radial zones showing crime concentration
-- Animated rings with distance-based sizing:
-  - Outer ring (largest radius, minimal opacity)
-  - Mid ring (70% radius)
-  - Inner rings (45%, 22% radius)
-- Intensity-based coloring based on case volume
-- Only displays when district is selected
-- Real-time updates as filters change
-- Accessible even without explicit selection via AI tool-calling
-
-### 7. **District Boundary Overlays** 🏞️
+### 9. **District Boundary Overlays** 🏞️
 - GeoJSON-based district boundary visualization
-- Auto-fit to selected district
-- Color highlighting:
-  - Selected: Gold (#D9A441, 15% opacity)
-  - Unselected: Blue (#4A7FB5, 2% opacity)
-- Enhanced border weight for selected district
+- Auto-fits to the selected district
+- Gold highlight for the selected district, subtle blue outline for the rest
 
-### 8. **Analytics Dashboard** 📈
-- **Crime Trend Chart**: Last 12 months bar chart
-- **Top Crime Hotspots**: Top 5 stations by case count
-- **Case Resolution Rate**: Donut chart showing resolved vs. pending
-- **AI Crime Insights**: Auto-generated narrative insights about:
-  - Most frequent crime type
-  - Station with highest workload
-  - Resolution rate percentage
-  - Pending case count
+### 10. **Analytics Dashboard** 📈
+- Crime Trend chart (last 12 months)
+- Top Crime Hotspots (top 5 stations by case count)
+- Case Resolution Rate (resolved vs. pending)
+- Auto-generated narrative AI insight summarizing the current filtered view
 
-### 9. **Filtering & Controls** 🎛️
-- **District Filter**: Dropdown with all Karnataka districts
-- **Status Filter**: Under Investigation, Chargesheeted, Closed
-- **Crime Type Filter**: Dynamic filtering by FIR crime type
-- **CCTV Toggles**: Show/hide recommendations, active cameras, hotspot zones
-- **Recommendation Limit**: Adjust how many CCTV recommendations to display (10-50)
-- Real-time map and analytics updates on filter change
+### 11. **Filtering & Controls** 🎛️
+- District, Status, and Crime Type filters
+- CCTV layer toggles (recommendations, active cameras) with adjustable recommendation limit
+- Real-time map and analytics updates on every filter change
 
-### 10. **Multi-Language Support** 🌐
-- **English**: Full UI and data localization
-- **Kannada**: Native script support (ಕನ್ನಡ)
-- Language toggle in top navigation
-- AI responses in selected language
-- Voice input/output language matching
-- Sample questions in both languages
+### 12. **Multi-Language Support** 🌐
+- English and native Kannada (ಕನ್ನಡ) script support throughout the UI
+- Global language toggle in the top navigation
+- AI chatbot and Knowledge Base both understand and respond in Kannada, regardless of which script the question was typed in
+- Voice input and output language-matched to the toggle
 
 ---
 
@@ -159,32 +143,32 @@ Built for the **KSP Datathon 2026** in partnership with Karnataka State Police, 
 ### Frontend
 | Component | Technology |
 |-----------|-----------|
-| **Framework** | React 18.3.1 |
-| **Build Tool** | Vite 5.3.1 |
-| **Maps** | Leaflet 1.9.4 + React-Leaflet 4.2.1 |
-| **Clustering** | Leaflet.MarkerCluster 1.5.3 |
-| **Charts** | Recharts 3.10.0 |
-| **Graph** | react-force-graph-2d 1.29.1 |
-| **Icons** | Lucide React 1.26.0 |
-| **PDF Export** | jsPDF 4.2.1 + html2canvas 1.4.1 |
-| **Styling** | CSS3 with custom design tokens |
-| **Speech API** | Web Speech API (native browser) |
+| **Framework** | React 18 |
+| **Build Tool** | Vite |
+| **Maps** | Leaflet + React-Leaflet |
+| **Clustering** | Leaflet.MarkerCluster |
+| **Charts** | Recharts |
+| **Graph** | react-force-graph-2d |
+| **Icons** | Lucide React |
+| **PDF Export** | jsPDF + html2canvas |
+| **Styling** | Custom CSS with design tokens |
+| **Speech** | Web Speech API (native browser) |
 
 ### Backend
 | Component | Technology |
 |-----------|-----------|
 | **Platform** | Zoho Catalyst (Serverless) |
 | **Runtime** | Node.js |
-| **API Endpoints** | 5 serverless functions |
-| **Database** | Zoho Creator (CRM-like backend) |
-| **Data Source** | FIR records from KSP database |
+| **Database** | Zoho Catalyst Data Store, queried via ZCQL — `CaseMaster`, `District`, `Unit`, `CCTVLocation`, `KBDocument`, `KBChunk`, `Officers`, plus lookup tables (`CaseStatusMaster`, `GravityOffence`, `CaseCategory`) |
+| **AI Model** | GLM model served via Catalyst QuickML, used for the chatbot and the Knowledge Base's grounded answers |
+| **Document Parsing** | pdf.js (PDF), mammoth (DOCX) |
 
 ### Infrastructure
 | Component | Details |
 |-----------|---------|
 | **Deployment** | Zoho Catalyst development environment |
 | **Live URL** | `https://ksp-fir-platform-60073928681.development.catalystserverless.in` |
-| **Version Control** | Git |
+| **Version Control** | Git / GitHub |
 
 ---
 
@@ -196,97 +180,95 @@ ksp-fir-platform/
 │   └── vite.svg
 │
 ├── src/
-│   ├── components/               # React components (inline in App.jsx)
-│   │   ├── KpiCard
-│   │   ├── ClusterLayer
-│   │   ├── DistrictBoundaries
-│   │   ├── HotspotZoneLayer
-│   │   ├── CctvLayer
-│   │   ├── AnalyticsDrawer
-│   │   ├── MapLegend
-│   │   ├── PatrolRecommendationPanel
-│   │   ├── NetworkGraphPanel
-│   │   └── KnowledgeBasePanel
-│   │
-│   ├── App.jsx                  # Main application component (1,800+ lines)
-│   ├── App.css                  # Premium styling (1,723 lines)
-│   ├── LoginPage.jsx            # Authentication component
+│   ├── App.jsx                  # Main application component + all sub-components
+│   │   (KpiCard, ClusterLayer, DistrictBoundaries, HotspotZoneLayer, CctvLayer,
+│   │    AnalyticsDrawer, MapLegend, PatrolRecommendationPanel, NetworkGraphPanel,
+│   │    KnowledgeBasePanel)
+│   ├── App.css                  # Styling
+│   ├── LoginPage.jsx             # Authentication screen
 │   ├── index.css                # Design tokens & global styles
-│   ├── main.jsx                 # React entry point
-│   ├── translations.js          # Kannada/English localization
+│   ├── main.jsx                  # React entry point
+│   ├── translations.js           # Kannada/English UI localization
 │   │
 │   ├── utils/
-│   │   └── districtNameMap.js   # GeoJSON ↔ Database name mapping
+│   │   └── districtNameMap.js    # GeoJSON ↔ database name mapping
 │   │
 │   └── assets/
-│       ├── karnataka_districts.json  # GeoJSON district boundaries
-│       └── react.svg
+│       └── karnataka_districts.json  # GeoJSON district boundaries
 │
-├── .catalyst/
-│   └── slate-config.toml        # Zoho Catalyst configuration
+├── functions/                    # Zoho Catalyst serverless functions
+│   ├── dashboard-function/
+│   ├── map-data-function/
+│   ├── ask-ai-function/
+│   ├── network-graph-function/
+│   ├── cctv-recommend-function/
+│   ├── patrol-recommend-function/
+│   ├── kb-function/
+│   ├── auth-function/
+│   ├── tts-function/
+│   ├── cleanup-function/
+│   └── cleanup-job-function/
 │
-├── .kiro/
-│   └── specs/                   # Spec documentation
-│       └── crime-dashboard-redesign/
-│           ├── design.md
-│           ├── tasks.md
-│           └── .config.kiro
-│
-├── data-exports/                # Sample CSV exports (optional)
-│   ├── *_seed.csv              # Sample data files
-│   └── ...
-│
-├── index.html                   # HTML entry point
-├── vite.config.js              # Vite configuration
-├── cli-config.json             # Catalyst CLI config
-├── package.json                # Dependencies & scripts
-├── package-lock.json           # Locked versions
-├── .eslintrc.cjs               # ESLint configuration
-├── .gitignore
-└── README.md                    # This file
+├── index.html
+├── vite.config.js
+├── catalyst.json                 # Catalyst project/function registration
+├── package.json
+├── package-lock.json
+└── README.md
 ```
 
 ### Backend Functions (Zoho Catalyst)
 
-The backend consists of 5 serverless Node.js functions deployed on Zoho Catalyst:
+**Called directly from the frontend:**
 
-1. **`ask-ai-function`** - AI chatbot with tool-calling
-   - Endpoint: `POST /server/ask-ai-function/`
-   - Processes natural language questions
-   - Returns: `{ insight, reasoning[], recommendation, confidence, dashboardAction }`
+1. **`dashboard-function`** — KPI metrics
+   `GET /server/dashboard-function/` → `{ totalCases, underInvestigation, chargesheeted, closed, chargesheetRate }`
 
-2. **`dashboard-function`** - KPI metrics
-   - Endpoint: `GET /server/dashboard-function/`
-   - Returns: `{ total, underInvestigation, chargesheeted, closed }`
+2. **`map-data-function`** — Crime cases and districts
+   `GET /server/map-data-function/?type=districts|cases&district=&status=&crimeType=`
 
-3. **`map-data-function`** - Crime cases and districts
-   - Endpoint: `GET /server/map-data-function/?type=districts|cases`
-   - Query params: `?district=X&status=Y&crimeType=Z`
-   - Returns: `{ cases: [...], districts: [...] }`
+3. **`ask-ai-function`** — AI chatbot with tool-calling
+   `POST /server/ask-ai-function/` with `{ question }` → `{ insight, reasoning[], recommendation, confidence, dashboardAction }`
 
-4. **`cctv-recommend-function`** - CCTV recommendations & active cameras
-   - Endpoint: `GET /server/cctv-recommend-function/?limit=20&mode=active`
-   - Returns: `{ topRecommendations: [...], cameras: [...] }`
+4. **`network-graph-function`** — Criminal network data and AI offender summaries
+   `GET /server/network-graph-function/`
+   `GET /server/network-graph-function/?offenderId=&mode=summary`
 
-5. **`network-graph-function`** - Criminal network data
-   - Endpoint: `GET /server/network-graph-function/?limit=100`
-   - Returns: `{ nodes: [...], links: [...] }`
+5. **`cctv-recommend-function`** — CCTV recommendations and active cameras
+   `GET /server/cctv-recommend-function/?limit=20`
+   `GET /server/cctv-recommend-function/?mode=active`
+
+6. **`patrol-recommend-function`** — AI patrol plan generation
+   `GET /server/patrol-recommend-function/?district=&limit=30`
+
+7. **`kb-function`** — AI Knowledge Base (RAG)
+   `POST /server/kb-function/?mode=upload` — parse, chunk, and index a document
+   `GET /server/kb-function/?mode=list` — list indexed documents
+   `POST /server/kb-function/?mode=delete` — remove a document and its chunks
+   `POST /server/kb-function/?mode=query` — BM25 retrieval + grounded LLM answer with citations
+
+8. **`auth-function`** — Officer login (called from `LoginPage.jsx`)
+   `POST /server/auth-function/` with `{ action: "login", username, password }`
+
+**Deployed but not currently called by the frontend:**
+
+- **`tts-function`** — backend text-to-speech via Google's translate endpoint (built to guarantee Kannada audio regardless of the browser's installed voices). The current frontend uses the browser's native Web Speech API for voice output instead; this function remains available for a future re-integration.
+- **`cleanup-function`** / **`cleanup-job-function`** — scheduled data maintenance, not user-triggered.
 
 ---
 
 ## Prerequisites
 
 ### Required
-- **Node.js**: v16.0.0 or higher
-- **npm**: v8.0.0 or higher (or yarn v3.0.0+)
-- **Git**: Latest version
-- **Zoho Catalyst Account**: For backend deployment
-- **Modern Browser**: Chrome, Firefox, Safari, or Edge (2023+)
+- **Node.js**: v18 or higher
+- **npm**: v8 or higher
+- **Git**
+- **Zoho Catalyst Account**: for backend deployment (`npm install -g zcatalyst-cli`)
+- **Modern Browser**: Chrome or Edge recommended (best Web Speech API support, including Kannada where available)
 
 ### Optional
-- **Zoho Creator Account**: For database administration
-- **Microphone**: For voice input feature
-- **Speakers/Headphones**: For voice output feature
+- **Microphone**: for voice input
+- **Speakers**: for voice output
 
 ---
 
@@ -295,7 +277,7 @@ The backend consists of 5 serverless Node.js functions deployed on Zoho Catalyst
 ### Step 1: Clone Repository
 
 ```bash
-git clone https://github.com/your-org/ksp-fir-platform.git
+git clone https://github.com/<your-username>/ksp-fir-platform.git
 cd ksp-fir-platform
 ```
 
@@ -305,49 +287,23 @@ cd ksp-fir-platform
 npm install
 ```
 
-This installs:
-- React 18.3.1 + React-DOM
-- Leaflet + React-Leaflet
-- Recharts for analytics
-- Vite build tool
-- ESLint + plugins
+### Step 3: Configure the backend base URL
 
-### Step 3: Environment Setup
-
-The frontend connects to Catalyst serverless functions. The base URL is already configured:
+The frontend points to a deployed Catalyst backend via a constant near the top of `src/App.jsx`:
 
 ```javascript
 const FUNCTIONS_BASE = 'https://ksp-fir-platform-60073928681.development.catalystserverless.in/server';
 ```
 
-**Note**: For local development, you can override this in `.env`:
+If you deploy your own Catalyst project, update this to your own project's function base URL.
 
-```env
-# .env (optional)
-VITE_CATALYST_BASE=https://your-catalyst-url/server
-```
-
-Then update `App.jsx` line 20:
-
-```javascript
-const FUNCTIONS_BASE = import.meta.env.VITE_CATALYST_BASE || 'https://...';
-```
-
-### Step 4: Start Development Server
+### Step 4: Start the Development Server
 
 ```bash
 npm run dev
 ```
 
-Output:
-```
-  VITE v5.3.1  ready in 234 ms
-
-  ➜  Local:   http://localhost:5173/
-  ➜  press h to show help
-```
-
-The app opens at `http://localhost:5173/`
+The app opens at `http://localhost:5173/` (or the port Vite reports).
 
 ### Step 5: Build for Production
 
@@ -355,7 +311,7 @@ The app opens at `http://localhost:5173/`
 npm run build
 ```
 
-Output files: `dist/` directory (ready for deployment)
+Output goes to the `dist/` directory.
 
 ---
 
@@ -367,7 +323,7 @@ Output files: `dist/` directory (ready for deployment)
 npm run dev
 ```
 
-Hot-reload enabled. Changes to `.jsx`, `.css`, or `.js` files auto-refresh.
+Hot-reload enabled — changes to `.jsx`/`.css`/`.js` auto-refresh.
 
 ### Linting
 
@@ -375,156 +331,40 @@ Hot-reload enabled. Changes to `.jsx`, `.css`, or `.js` files auto-refresh.
 npm run lint
 ```
 
-Check ESLint rules (React, React Hooks, import order)
+### Design Tokens
 
-### Code Style
-
-Follow ESLint configuration (`.eslintrc.cjs`):
-- React: v18 rules with hooks support
-- 2-space indentation
-- Unused variables must be removed
-
-### Building Assets
-
-```bash
-npm run build
-npm run preview
-```
-
-Preview the production build locally at `http://localhost:4173/`
-
-### Modifying Components
-
-All React components are in `src/App.jsx` (main file, 1,800+ lines).
-
-To add a new feature:
-
-1. Create a component function in `App.jsx`
-2. Add styling to `src/App.css`
-3. Import any needed libraries from `src/main.jsx`
-4. Use design tokens from `src/index.css`
-
-**Design Tokens Available**:
-```css
-/* Colors */
---bg: #0F1527
---surface: #111D2E
---surface-2: #1A2438
---surface-3: #232D42
---accent: #5B8DEF
---status-investigation: #D9A441
---status-chargesheeted: #4A7FB5
---status-closed: #5FA88C
---success: #10B981
---alert: #EF4444
---warning: #F59E0B
-
-/* Spacing */
---spacing-xs: 4px
---spacing-sm: 8px
---spacing-md: 12px
---spacing-lg: 16px
---spacing-xl: 24px
-
-/* Shadows */
---shadow-sm: 0 2px 8px rgba(0,0,0,0.1)
---shadow-md: 0 4px 16px rgba(0,0,0,0.15)
---shadow-lg: 0 8px 32px rgba(0,0,0,0.3)
-
-/* Z-Index */
---z-sticky: 40
---z-modal: 50
---z-dropdown: 30
-```
+Defined in `src/index.css` and used throughout `App.css` — colors, spacing, radii, shadows, and z-index scales. Reuse these tokens (`var(--accent)`, `var(--spacing-lg)`, etc.) rather than hardcoding new values when extending the UI.
 
 ---
 
 ## Deployment
 
-### Option 1: Zoho Catalyst (Recommended)
+### Zoho Catalyst (this project's deployment target)
 
-The platform is built specifically for Zoho Catalyst deployment.
+**Prerequisites**: a Zoho account with Catalyst access, and the Catalyst CLI installed.
 
-**Prerequisites**:
-- Zoho account with Catalyst access
-- Catalyst CLI installed: `npm install -g zcli`
-
-**Steps**:
-
-1. **Login to Catalyst**:
-   ```bash
-   catalyst login
-   ```
-
-2. **Create Catalyst Project** (if not already created):
-   ```bash
-   catalyst init
-   ```
-   - Choose "React + Vite" template
-   - Choose "Node.js" for functions
-
-3. **Deploy Frontend**:
-   ```bash
-   catalyst deploy
-   ```
-   - Automatically builds with `npm run build`
-   - Deploys `dist/` to Catalyst
-
-4. **Deploy Backend Functions** (separately via Catalyst console):
-   - Navigate to Functions in Catalyst console
-   - Deploy the 5 serverless functions (ask-ai, dashboard, map-data, cctv-recommend, network-graph)
-   - Each function handles its endpoint
-
-5. **Verify Deployment**:
-   ```bash
-   catalyst open
-   ```
-   - Opens your live deployment in browser
-   - Live URL format: `https://app-{project-id}.catalystserverless.in`
-
-### Option 2: Traditional Hosting (Vite Build)
-
-If not using Catalyst:
-
-1. **Build the app**:
-   ```bash
-   npm run build
-   ```
-
-2. **Deploy `dist/` folder** to:
-   - **Netlify**: `netlify deploy --dir=dist`
-   - **Vercel**: `vercel deploy`
-   - **GitHub Pages**: Push `dist/` to `gh-pages` branch
-   - **AWS S3 + CloudFront**: Upload `dist/` to S3
-
-3. **Configure backend URL**:
-   - Update `FUNCTIONS_BASE` in `src/App.jsx` to point to your serverless backend
-   - Must support CORS for cross-origin requests
-
-### Option 3: Docker (Local/Cloud)
-
-**Dockerfile** (create if needed):
-```dockerfile
-FROM node:16-alpine as build
-WORKDIR /app
-COPY package*.json ./
-RUN npm install
-COPY . .
-RUN npm run build
-
-FROM node:16-alpine
-WORKDIR /app
-RUN npm install -g serve
-COPY --from=build /app/dist ./dist
-EXPOSE 3000
-CMD ["serve", "-s", "dist", "-l", "3000"]
-```
-
-**Build and run**:
 ```bash
-docker build -t ksp-platform .
-docker run -p 3000:3000 ksp-platform
+catalyst login
 ```
+
+**Deploy the frontend (Slate) and all functions:**
+```bash
+catalyst deploy
+```
+
+**Deploy only functions** (faster iteration when only backend code changed):
+```bash
+catalyst deploy --only functions
+```
+
+Which functions get deployed is controlled by the `targets` array in `catalyst.json` at the project root — every function folder under `functions/` that should be live must be listed there.
+
+**Verify:**
+```bash
+catalyst open
+```
+
+> **Note for this submission**: per the Datathon rules, the deployed solution link must be a **Zoho Catalyst** deployment — this project is built and configured specifically for that target.
 
 ---
 
@@ -535,448 +375,174 @@ docker run -p 3000:3000 ksp-platform
 https://ksp-fir-platform-60073928681.development.catalystserverless.in/server
 ```
 
-### 1. AI Chatbot Query
+### AI Chatbot Query
+**`POST /ask-ai-function/`**
 
-**Endpoint**: `POST /ask-ai-function/`
+Request:
+```json
+{ "question": "Show theft cases in Bengaluru Urban" }
+```
 
-**Request**:
+Response:
 ```json
 {
-  "question": "Show theft cases in Bengaluru"
+  "insight": "Bengaluru Urban has 342 theft cases, with 156 currently under investigation.",
+  "reasoning": ["Total matching cases: 342.", "156 are still under investigation."],
+  "recommendation": "Consider increasing CCTV coverage in the highest-density areas.",
+  "confidence": 85,
+  "dashboardAction": { "type": "filterDistrict", "district": "Bengaluru Urban" }
 }
 ```
 
-**Response**:
+`dashboardAction.type` can be `filterDistrict`, `filterCrimeType`, `filterStatus`, `showHotspots`, `showCCTV`, or `none`.
+
+### Knowledge Base Query
+**`POST /kb-function/?mode=query`**
+
+Request:
+```json
+{ "question": "What is the procedure for cyber fraud investigation?", "preferredLang": "en" }
+```
+
+Response:
 ```json
 {
-  "insight": "Bengaluru Urban has 342 theft cases, with 156 currently under investigation...",
-  "reasoning": [
-    "Queried FIR database for theft + Bengaluru filter",
-    "Aggregated by crime type and status",
-    "Generated summary with insights"
-  ],
-  "recommendation": "Consider increasing CCTV coverage in downtown areas.",
-  "confidence": 0.92,
-  "dashboardAction": {
-    "type": "filterDistrict",
-    "district": "Bengaluru Urban"
-  }
+  "answer": "...",
+  "groundedInKB": true,
+  "citations": [{ "documentName": "cyber_fraud_sop.pdf", "source": "Page 1" }]
 }
 ```
 
-**Dashboard Actions**:
-- `{ type: "filterDistrict", district: "Bengaluru" }`
-- `{ type: "filterCrimeType", crimeType: "Theft" }`
-- `{ type: "filterStatus", status: "Under Investigation" }`
-- `{ type: "showHotspots" }`
-- `{ type: "showCCTV" }`
-- `{ type: "none" }` (no action needed)
+### Patrol Recommendations
+**`GET /patrol-recommend-function/?district=<rowId>&limit=30`**
 
----
+Response includes `totalHotspots`, `highPriorityCount`, `lowPriorityCount`, and a `recommendations[]` array with per-area officer counts, patrol timing, nearby CCTV context, and an explanation.
 
-### 2. KPI Dashboard
+### KPI Dashboard
+**`GET /dashboard-function/`** → `{ totalCases, underInvestigation, chargesheeted, closed, chargesheetRate }`
 
-**Endpoint**: `GET /dashboard-function/`
+### Crime Cases & Districts
+**`GET /map-data-function/?type=cases|districts&district=&status=&crimeType=`**
 
-**Response**:
-```json
-{
-  "total": 15248,
-  "underInvestigation": 5432,
-  "chargesheeted": 7891,
-  "closed": 1925
-}
-```
+### CCTV Recommendations & Active Cameras
+**`GET /cctv-recommend-function/?limit=20`** and **`?mode=active`**
 
----
+### Criminal Network
+**`GET /network-graph-function/`** and **`?offenderId=&mode=summary`**
 
-### 3. Crime Cases & Districts
-
-**Endpoint**: `GET /map-data-function/`
-
-**Query Parameters**:
-- `type=cases|districts` (required)
-- `district=<rowId>` (optional filter)
-- `status=Under Investigation|Chargesheeted|Closed` (optional)
-- `crimeType=Theft|Assault|...` (optional)
-
-**Response (cases)**:
-```json
-{
-  "cases": [
-    {
-      "firNumber": "FIR/2026/0001",
-      "crimeType": "Theft",
-      "status": "Under Investigation",
-      "dateOfFIR": "2026-07-01",
-      "latitude": 12.9716,
-      "longitude": 77.5946,
-      "districtId": "dist_001",
-      "unitName": "Bengaluru Urban Police Station",
-      "severity": "high"
-    }
-  ]
-}
-```
-
-**Response (districts)**:
-```json
-{
-  "districts": [
-    {
-      "rowId": "dist_001",
-      "districtName": "Bengaluru Urban",
-      "lat": 13.0827,
-      "lng": 77.6063
-    }
-  ]
-}
-```
-
----
-
-### 4. CCTV Recommendations & Active Cameras
-
-**Endpoint**: `GET /cctv-recommend-function/`
-
-**Query Parameters**:
-- `limit=20` (1-50, default 20)
-- `mode=active` (optional, to fetch active cameras)
-
-**Response (recommendations)**:
-```json
-{
-  "topRecommendations": [
-    {
-      "centroidLat": 12.9716,
-      "centroidLon": 77.5946,
-      "priority": "High",
-      "riskScore": 87,
-      "caseCount": 245,
-      "highSeverityCount": 18,
-      "cameraCount": 3,
-      "recommendedCameraCount": 5,
-      "expectedCoverageImprovementPct": 34,
-      "reason": "High crime density with limited camera coverage"
-    }
-  ]
-}
-```
-
-**Response (active cameras)**:
-```json
-{
-  "cameras": [
-    {
-      "cameraName": "BUP-001",
-      "latitude": 12.9716,
-      "longitude": 77.5946,
-      "status": "Active"
-    }
-  ]
-}
-```
-
----
-
-### 5. Criminal Network Graph
-
-**Endpoint**: `GET /network-graph-function/`
-
-**Query Parameters**:
-- `limit=100` (max nodes to return)
-
-**Response**:
-```json
-{
-  "nodes": [
-    { "id": "case_001", "type": "case", "label": "FIR/2026/0001", "color": "#4A7FB5" },
-    { "id": "risk_001", "type": "risk", "riskScore": 85, "label": "High", "color": "#D94F4F" }
-  ],
-  "links": [
-    { "source": "case_001", "target": "risk_001", "strength": 0.8 }
-  ]
-}
-```
+### Officer Login
+**`POST /auth-function/`** with `{ "action": "login", "username": "...", "password": "..." }`
 
 ---
 
 ## Features Guide
 
 ### Dashboard Tab
+- Select District / Status / Crime Type filters — map, KPIs, and analytics all update live
+- Toggle CCTV recommendation and active-camera layers; adjust the recommendation limit
+- Click "Analytics" to expand the trend/hotspot/resolution charts
 
-1. **Select Filters**:
-   - Choose district, status, crime type
-   - Map updates in real-time
-   - KPIs recompute automatically
-
-2. **Explore Map**:
-   - Click markers for FIR details
-   - Click legend items to toggle layers
-   - Zoom with mouse wheel or buttons
-   - View district boundaries
-
-3. **View Analytics**:
-   - Click "Analytics" toggle
-   - See 12-month crime trends
-   - Compare top hotspots
-   - View resolution rates
-
-### AI Chatbot
-
-1. **Ask Questions**:
-   - Type in chat input
-   - Press Enter or click Send
-   - Wait for AI response
-
-2. **Sample Questions**:
-   - Click any pre-written question
-   - Dashboard auto-filters to match
-
-3. **Voice Input** (Chrome/Edge):
-   - Click microphone icon
-   - Speak your question
-   - AI transcribes and responds
-
-4. **Export History**:
-   - Click "Export as PDF"
-   - Saves conversation to file
-
-### Criminal Network Tab
-
-1. **View Relationships**:
-   - Explore connected FIRs
-   - Drag nodes to rearrange
-   - Hover for details
-
-2. **Filter by Risk**:
-   - Red nodes = High risk
-   - Orange nodes = Medium risk
-   - Green nodes = Low risk
+### AI Chatbot (side panel, any tab)
+- Type a question or click a suggested prompt
+- Click the microphone to ask by voice (English or Kannada, based on the language toggle)
+- Click 🔊 to hear the answer read aloud
+- Open History to revisit past questions or export the full conversation as a PDF
 
 ### Knowledge Base Tab
+- Upload SOPs/circulars/manuals as PDF, DOCX, or TXT
+- Ask questions by text or voice — answers cite the specific document and page/section they came from
+- If nothing relevant is uploaded, the assistant says so rather than guessing
 
-1. **Search Documents**:
-   - Type keywords
-   - View full-text results
+### AI Patrol Recommendation Tab
+- Filter by district and click "Generate Patrol Plan"
+- Each recommendation card shows officer count, suggested patrol window, nearby CCTV context, recent crime count, and a confidence score
 
-2. **Download Files**:
-   - View file list
-   - Click to download
+### Criminal Network Tab
+- Filter by district, crime type, year, or offender name
+- Click a node to see linked cases and generate an AI summary of that offender's pattern
 
 ---
 
 ## Troubleshooting
 
-### Common Issues
+### Map not loading
+- Check the browser console (F12) for errors
+- Hard refresh (Ctrl+Shift+R) to rule out stale cached assets
 
-#### Map not loading
+### AI chatbot / Knowledge Base / Patrol panel returns an error or generic fallback
+- Confirm the relevant Catalyst function is deployed (`catalyst deploy --only functions`)
+- Check that function's logs in the Catalyst console for the actual error
+- Verify `FUNCTIONS_BASE` in `App.jsx` points to your deployed project
 
-**Symptom**: White/blank map area  
-**Solutions**:
-1. Check browser console (F12) for errors
-2. Verify Leaflet CSS loaded: `leaflet/dist/leaflet.css`
-3. Clear browser cache: Ctrl+Shift+Delete
-4. Check internet connection
+### Kannada text displays as boxes
+- Use a recent version of Chrome or Edge
+- For PDF export specifically, the app loads the Noto Sans Kannada web font before rendering — a slow/blocked network connection to Google Fonts can affect this
 
-#### AI chatbot returns "Something went wrong"
+### Voice input or output doesn't work for Kannada
+- This is a genuine platform limitation: browser support for Kannada speech recognition/synthesis varies by OS and browser. Chrome on Android tends to have the best coverage. The app detects a missing Kannada voice and shows a clear message rather than silently failing in the wrong language.
 
-**Symptom**: Error message from chatbot  
-**Solutions**:
-1. Verify Catalyst functions are deployed
-2. Check network tab (F12) for failed requests
-3. Verify `FUNCTIONS_BASE` URL is correct
-4. Check function logs in Catalyst console
-5. Test endpoint manually: `curl https://...api/ask-ai-function/`
-
-#### No CCTV recommendations showing
-
-**Symptom**: Empty CCTV layer  
-**Solutions**:
-1. Check toggle is enabled ("Show Recommendations")
-2. Verify `cctv-recommend-function` is deployed
-3. Increase "Recommendation Limit" slider
-4. Select a district to limit results
-5. Check network requests in DevTools
-
-#### Kannada text displays as boxes
-
-**Symptom**: ಕನ್ನಡ shows as ??? or squares  
-**Solutions**:
-1. Install Kannada font (e.g., Noto Sans Kannada)
-2. Browser likely doesn't support Kannada: use Chrome
-3. Check `src/translations.js` has correct Unicode characters
-4. Verify font-family in `src/index.css` includes Kannada
-
-#### Voice input not working
-
-**Symptom**: Clicking mic button does nothing  
-**Solutions**:
-1. Use Chrome or Edge (Firefox/Safari have limited support)
-2. Check browser permissions: Settings → Privacy → Microphone → Allow
-3. Verify microphone hardware works
-4. Try different language in language toggle
-5. Check browser console for `SpeechRecognition` errors
-
-#### Slow performance / lag
-
-**Symptom**: Dashboard sluggish, zoom slow  
-**Solutions**:
-1. Close other tabs/applications
-2. Reduce marker cluster radius in `ClusterLayer` (line 63)
-3. Disable unnecessary layers (hotspots, recommendations)
-4. Use Chrome DevTools Performance tab to profile
-5. Reduce animation duration in CSS
-
-#### Login page appears blank
-
-**Symptom**: Can't see login form  
-**Solutions**:
-1. Check `LoginPage.jsx` is in `src/`
-2. Verify CSS loaded: `src/App.css`
-3. Try incognito mode
-4. Clear localStorage: `localStorage.clear()`
+### Login page appears blank
+- Confirm `LoginPage.jsx` exists in `src/` and is imported in `App.jsx`
+- Clear `localStorage` (`localStorage.clear()` in the console) if a stale session object is causing issues
 
 ---
 
 ## Contributing
 
 ### Code Style
+- 2-space indentation
+- Follow the existing ESLint configuration
+- Reuse existing design tokens rather than introducing new hardcoded values
 
-- Use 2-space indentation
-- Follow ESLint rules
-- Component functions should be commented
-- Use meaningful variable names
-
-### Testing Changes
+### Making Changes
 
 ```bash
-# Run linter
+git checkout -b feature/your-feature-name
+# make changes
 npm run lint
-
-# Start dev server
-npm run dev
-
-# Test in browser
-# Navigate to http://localhost:5173
-# Use console (F12) for debugging
-```
-
-### Making Updates
-
-1. Create a feature branch:
-   ```bash
-   git checkout -b feature/your-feature-name
-   ```
-
-2. Make changes:
-   - Update components
-   - Add styling
-   - Test locally
-
-3. Commit:
-   ```bash
-   git add .
-   git commit -m "feat: Add your feature description"
-   ```
-
-4. Push and create pull request
-
-### Updating Dependencies
-
-Check for outdated packages:
-```bash
-npm outdated
-```
-
-Update securely:
-```bash
-npm update
-npm audit fix
+npm run dev   # test locally
+git add .
+git commit -m "feat: describe your change"
+git push
 ```
 
 ---
 
 ## Support & Resources
 
-### Documentation
 - **Catalyst Docs**: https://catalyst.zoho.com/help/
 - **React Docs**: https://react.dev
 - **Leaflet Docs**: https://leafletjs.com
 - **Vite Docs**: https://vitejs.dev
 
-### Debugging
-- **Browser DevTools**: F12 or Right-click → Inspect
-- **Network Tab**: Check API requests/responses
-- **Console Tab**: View errors and logs
-- **Catalyst Logs**: View function execution logs in console
-
-### Issues & Support
-- Report bugs via GitHub Issues
-- Include:
-  - Browser and version
-  - Steps to reproduce
-  - Screenshots/error messages
-  - Console errors (F12 → Console)
-
-### Contact
-- **KSP Datathon 2026 Team**: [Your Email]
-- **Zoho Catalyst Support**: [Catalyst Support Link]
-
 ---
 
 ## License
 
-MIT License - See LICENSE file for details
+MIT License
 
 ---
 
 ## Changelog
 
 ### Version 1.0.0 (July 26, 2026)
-- ✅ Initial release for KSP Datathon 2026
-- ✅ KPI dashboard with live statistics
-- ✅ Interactive crime map with clustering
-- ✅ AI chatbot with tool-calling
-- ✅ CCTV recommendation engine (priority-based)
-- ✅ Criminal network graph visualization
-- ✅ District boundary overlays
-- ✅ Hotspot zone detection
-- ✅ Kannada + English multi-language support
-- ✅ Voice input/output capabilities
-- ✅ PDF export for conversations
-- ✅ Analytics drawer with trends
-- ✅ Premium enterprise UI design
-- ✅ Full responsive design
-- ✅ Production-ready deployment
-
----
-
-## File Statistics
-
-| File | Lines | Purpose |
-|------|-------|---------|
-| `src/App.jsx` | 1,800+ | Main React component + all sub-components |
-| `src/App.css` | 1,723 | Premium styling & animations |
-| `src/index.css` | 123 | Design tokens & global styles |
-| `LoginPage.jsx` | 100+ | Authentication component |
-| `translations.js` | 50+ | Kannada/English localization |
-| `package.json` | 40 | Dependencies & scripts |
+- Initial release for KSP Datathon 2026
+- KPI dashboard, interactive crime map with clustering and hotspot zones
+- AI chatbot with tool-calling, bilingual (English/Kannada), voice input/output, PDF export
+- AI Knowledge Base (RAG) with document upload, BM25 retrieval, and grounded citations
+- AI Patrol Recommendation engine
+- CCTV recommendation engine (priority-based)
+- Criminal network graph visualization
+- Officer authentication with role-based accounts
+- Full Kannada + English multi-language support throughout
 
 ---
 
 ## Quick Links
 
 - 🚀 **Live Platform**: https://ksp-fir-platform-60073928681.development.catalystserverless.in
-- 📦 **GitHub**: https://github.com/your-org/ksp-fir-platform
-- 📚 **Datathon Details**: https://ksp-datathon-2026.example.com
-- 🔗 **Zoho Catalyst**: https://catalyst.zoho.com
-- 🗺️ **Map Data**: Uses Leaflet.js with OpenStreetMap tiles
+- 📦 **GitHub**: `<add your repository URL here>`
 
 ---
 
-**Made with ❤️ for Karnataka State Police | KSP Datathon 2026**
-
-**Last Updated**: July 26, 2026  
-**Maintained By**: Development Team  
-**Status**: ✅ Production Ready
+**Made for Karnataka State Police | KSP Datathon 2026**
