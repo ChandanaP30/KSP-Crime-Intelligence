@@ -46,6 +46,12 @@ Built for the **KSP Datathon 2026** in partnership with Karnataka State Police, 
 
 ---
 
+## Demo Access (for evaluators)
+
+Log in with:
+- **Username**: `Admin`
+- **Password**: `Admin123`
+
 ## Key Features
 
 ### 1. **Officer Authentication** 🔐
