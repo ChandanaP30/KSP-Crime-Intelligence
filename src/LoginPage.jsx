@@ -499,7 +499,10 @@ export default function LoginPage({ onAuthenticated }) {
 
           <form onSubmit={handleSubmit} noValidate>
             <div className="ksp-field">
-              <label htmlFor="ksp-username">Username / Email</label>
+              <label htmlFor="ksp-username">
+  Badge ID
+  <span> / ಬ್ಯಾಡ್ಜ್ ಐಡಿ</span>
+</label>
               <div className="ksp-input-wrap">
                 <input
                   id="ksp-username"

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { MapContainer, TileLayer, CircleMarker, Popup } from 'react-leaflet';
+import { MapContainer, TileLayer, CircleMarker, Popup, Polyline } from 'react-leaflet';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import ForceGraph2D from 'react-force-graph-2d';
 import 'leaflet/dist/leaflet.css';
@@ -13,10 +13,21 @@ import { GeoJSON } from 'react-leaflet';
 import karnatakaDistricts from './assets/karnataka_districts.json';
 import { GEOJSON_TO_DB_NAME } from './utils/districtNameMap';
 import { useLangStrings } from './translations';
+import * as faceapi from 'face-api.js';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import LoginPage from './LoginPage';
-
+import { ShieldCheck, BadgeCheck, MapPin, Building2, LogOut, ChevronDown } from 'lucide-react';
+const ROLE_CONFIG = {
+  Admin: { tabs: ['dashboard', 'priority', 'network', 'knowledge', 'patrol', 'face'] },
+  Administrator: { tabs: ['dashboard', 'priority', 'network', 'knowledge', 'patrol', 'face'] },
+  'Police Officer': { tabs: ['dashboard', 'priority', 'network', 'knowledge', 'patrol', 'face'] },
+  'Crime Analyst': { tabs: ['dashboard', 'priority', 'network'] },
+  Investigator: { tabs: ['dashboard', 'priority', 'network', 'knowledge', 'patrol', 'face'] },
+  Analyst: { tabs: ['dashboard', 'priority', 'network'] },
+  Supervisor: { tabs: ['dashboard', 'priority', 'network', 'knowledge', 'patrol', 'face'] },
+  Policymaker: { tabs: ['dashboard', 'priority'] },
+};
 const FUNCTIONS_BASE = 'https://ksp-fir-platform-60073928681.development.catalystserverless.in/server';
 
 const STATUS_COLORS = {
@@ -78,7 +89,7 @@ function ClusterLayer({ cases }) {
         fillOpacity: 0.7
       });
       marker.bindPopup(
-        `<div class="mono">${c.firNumber}</div><div>${c.crimeType}</div><div>${c.status}</div><div>${c.dateOfFIR}</div>`
+        `<div class="mono">${c.firNumber}</div><div>${c.crimeType}</div><div>${c.status}</div><div>${c.dateOfFIR}</div><button onclick="window.viewCourtHistory('${c.rowId}')" style="margin-top:6px;padding:4px 8px;cursor:pointer;">View Court History</button>`
       );
       clusterGroup.addLayer(marker);
     });
@@ -120,6 +131,93 @@ function DistrictBoundaries({ selectedDistrictName }) {
     />
   );
 }
+// Adaptive density clustering, shared by the map's HotspotZoneLayer and the
+// Top Hotspots ranked list — so both always agree on what counts as a hotspot.
+function computeCrimeClusters(cases, options = {}) {
+  const {
+    MIN_CELL_SIZE_KM = 0.8,
+    MAX_CELL_SIZE_KM = 4.0,
+    MIN_CASES_PER_HOTSPOT = 5,
+    MAX_HOTSPOT_RADIUS_KM = 6
+  } = options;
+
+  const points = (cases || []).filter(c => c.latitude && c.longitude);
+  if (points.length === 0) return [];
+
+  const toRad = d => d * Math.PI / 180;
+  const distKm = (lat1, lon1, lat2, lon2) => {
+    const R = 6371;
+    const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  };
+
+  const lats = points.map(c => c.latitude), lons = points.map(c => c.longitude);
+  const latSpanKm = distKm(Math.min(...lats), 0, Math.max(...lats), 0);
+  const lonSpanKm = distKm(0, Math.min(...lons), 0, Math.max(...lons));
+  const areaKm2 = Math.max(1, latSpanKm * lonSpanKm);
+  const density = points.length / areaKm2;
+
+  const rawCellSizeKm = 2.2 / Math.sqrt(Math.max(density, 0.02));
+  const cellSizeKm = Math.min(MAX_CELL_SIZE_KM, Math.max(MIN_CELL_SIZE_KM, rawCellSizeKm));
+  const cellSizeDeg = cellSizeKm / 111;
+
+  const cellOf = (lat, lon) => ({ row: Math.floor(lat / cellSizeDeg), col: Math.floor(lon / cellSizeDeg) });
+  const cellStats = new Map();
+  points.forEach(c => {
+    const { row, col } = cellOf(c.latitude, c.longitude);
+    const key = `${row}|${col}`;
+    if (!cellStats.has(key)) {
+      cellStats.set(key, { row, col, count: 0, latSum: 0, lonSum: 0, points: [] });
+    }
+    const cell = cellStats.get(key);
+    cell.count += 1;
+    cell.latSum += c.latitude;
+    cell.lonSum += c.longitude;
+    cell.points.push(c);
+  });
+
+  const visited = new Set();
+  const clusters = [];
+  for (const cell of cellStats.values()) {
+    const key = `${cell.row}|${cell.col}`;
+    if (visited.has(key)) continue;
+    const cluster = { count: cell.count, latSum: cell.latSum, lonSum: cell.lonSum, points: [...cell.points] };
+    visited.add(key);
+    for (let dr = -1; dr <= 1; dr++) {
+      for (let dc = -1; dc <= 1; dc++) {
+        if (dr === 0 && dc === 0) continue;
+        const nKey = `${cell.row + dr}|${cell.col + dc}`;
+        if (visited.has(nKey)) continue;
+        const neighbor = cellStats.get(nKey);
+        if (!neighbor) continue;
+        cluster.count += neighbor.count;
+        cluster.latSum += neighbor.latSum;
+        cluster.lonSum += neighbor.lonSum;
+        cluster.points.push(...neighbor.points);
+        visited.add(nKey);
+      }
+    }
+    if (cluster.count >= MIN_CASES_PER_HOTSPOT) {
+      const centroidLat = cluster.latSum / cluster.count;
+      const centroidLon = cluster.lonSum / cluster.count;
+      const clusterPoints = cluster.points.filter(p => distKm(centroidLat, centroidLon, p.latitude, p.longitude) <= MAX_HOTSPOT_RADIUS_KM);
+      const maxDistKm = Math.min(
+        MAX_HOTSPOT_RADIUS_KM,
+        Math.max(0.3, ...clusterPoints.map(p => distKm(centroidLat, centroidLon, p.latitude, p.longitude)))
+      );
+      clusters.push({
+        count: cluster.count,
+        centroidLat,
+        centroidLon,
+        radiusKm: maxDistKm,
+        points: clusterPoints
+      });
+    }
+  }
+
+  return clusters;
+}
 
 function HotspotZoneLayer({ cases, selectedDistrict, showHotspotZones }) {
   const map = useMap();
@@ -147,32 +245,19 @@ function HotspotZoneLayer({ cases, selectedDistrict, showHotspotZones }) {
   }, []);
 
   useEffect(() => {
-    // Only show once a district is picked - otherwise this is noise at state zoom.
-    if (!showHotspotZones || !selectedDistrict || !cases || cases.length === 0) return;
+   if (!showHotspotZones || !selectedDistrict || !cases || cases.length === 0) return;
+  const clusters = computeCrimeClusters(cases);
 
-    const points = cases.filter(c => c.latitude && c.longitude);
-    if (points.length === 0) return;
+  if (clusters.length === 0) return;
 
-    const centroidLat = points.reduce((s, c) => s + c.latitude, 0) / points.length;
-    const centroidLon = points.reduce((s, c) => s + c.longitude, 0) / points.length;
+  const layerGroup = L.layerGroup();
+  const maxCount = Math.max(...clusters.map(c => c.count));
 
-    // Radius = distance to the farthest actual case, so the zone visually
-    // covers every case that happened here, not a generic fixed size.
-    const toRad = d => d * Math.PI / 180;
-    const distKm = (lat1, lon1, lat2, lon2) => {
-      const R = 6371;
-      const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
-      const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    };
-    const maxDistKm = Math.max(...points.map(c => distKm(centroidLat, centroidLon, c.latitude, c.longitude)));
-    const radiusM = Math.max(400, maxDistKm * 1000 * 1.2); // 20% padding so edge cases aren't clipped
-
-    const intensity = Math.min(1, points.length / 50); // more cases = more intense red
+    clusters.forEach(cluster => {
+    const radiusM = Math.max(300, cluster.radiusKm * 1000 * 1.15);
+    const intensity = Math.min(1, cluster.count / Math.max(10, maxCount));
     const color = `rgb(${Math.round(255 - intensity * 45)}, ${Math.round(90 - intensity * 60)}, ${Math.round(70 - intensity * 55)})`;
-
-    const layerGroup = L.layerGroup();
-    const latlng = [centroidLat, centroidLon];
+    const latlng = [cluster.centroidLat, cluster.centroidLon];
 
     [
       { mult: 1.0, opacity: 0.10 + intensity * 0.08, cls: 'hotspot-zone-ring hotspot-zone-ring--outer' },
@@ -189,14 +274,41 @@ function HotspotZoneLayer({ cases, selectedDistrict, showHotspotZones }) {
         interactive: false
       }).addTo(layerGroup);
     });
+  });
 
-    layerGroup.addTo(map);
-    return () => { map.removeLayer(layerGroup); };
-  }, [cases, selectedDistrict, showHotspotZones, map]);
-
+  layerGroup.addTo(map);
+  return () => { map.removeLayer(layerGroup); };
+}, [cases, selectedDistrict, showHotspotZones, map]);
   return null;
 }
-function CctvLayer({ cctvData, showCctv, showRecommendations, activeCameras, showActiveCameras }) { 
+
+function SelectedHotspotBoundary({ hotspot }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!hotspot) return;
+    const circle = L.circle([hotspot.centroidLat, hotspot.centroidLon], {
+      radius: hotspot.radiusKm * 1000,
+      color: '#D9A441',
+      weight: 2,
+      dashArray: '8, 6',
+      fill: false,
+      interactive: false
+    }).addTo(map);
+    return () => { map.removeLayer(circle); };
+  }, [hotspot, map]);
+  return null;
+}
+
+function MapFlyTo({ target }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!target) return;
+    map.flyTo([target.centroidLat, target.centroidLon], 12, { duration: 1.2 });
+  }, [target, map]);
+  return null;
+}
+
+function CctvLayer({ cctvData, showCctv, showRecommendations, activeCameras, showActiveCameras }) {
  const map = useMap();
 
   useEffect(() => {
@@ -446,6 +558,7 @@ function AnalyticsDrawer({ cases, kpis, selectedDistrict, districts }) {
 
 
 function App() {
+    const [showProfileCard, setShowProfileCard] = useState(false);
   const [currentUser, setCurrentUser] = useState(() => {
   try {
     return JSON.parse(localStorage.getItem('ksp-user')) || null;
@@ -453,7 +566,10 @@ function App() {
     return null;
   }
 });
-
+const allowedTabs = ROLE_CONFIG[currentUser?.role]?.tabs || ['dashboard'];
+console.log("CURRENT USER:", currentUser);
+console.log("CURRENT ROLE:", currentUser?.role);
+console.log("ALLOWED TABS:", allowedTabs);
 const handleLogout = () => {
   setCurrentUser(null);
   localStorage.removeItem('ksp-user');
@@ -528,12 +644,55 @@ const recognitionRef = useRef(null);
   const [recommendationLimit, setRecommendationLimit] = useState('20');
   const [activeCameras, setActiveCameras] = useState(null);
   const [showActiveCameras, setShowActiveCameras] = useState(false);
-  const [showHotspotZones, setShowHotspotZones] = useState(true);
-  
-  const districtCounts = districts.map(d => ({
+    const [showHotspotZones, setShowHotspotZones] = useState(true);
+  const [selectedHotspot, setSelectedHotspot] = useState(null);
+  const [courtHistoryModal, setCourtHistoryModal] = useState(null);
+useEffect(() => {
+  window.viewCourtHistory = (caseId) => {
+    setCourtHistoryModal({ loading: true, cases: [] });
+    fetch(`${FUNCTIONS_BASE}/case-court-history-function/?caseId=${caseId}`)
+      .then(res => res.json())
+      .then(data => setCourtHistoryModal({ loading: false, cases: data.cases || [] }))
+      .catch(err => { console.error('Court history fetch error:', err); setCourtHistoryModal({ loading: false, cases: [], error: true }); });
+  };
+}, []);
+    const districtCounts = districts.map(d => ({
     name: d.districtName,
     count: cases.filter(c => c.districtId === d.rowId).length
   }));
+
+  // Top state-wide hotspots, ranked by case count, for the sidebar list.
+  // Only computed when no district is selected (state overview view),
+  // to avoid redundant work while a district is already drilled into.
+        const topStateHotspots = useMemo(() => {
+    if (selectedDistrict || !cases || cases.length === 0) return [];
+        const clusters = computeCrimeClusters(cases, { MIN_CASES_PER_HOTSPOT: 8 });
+    const districtNameById = {};
+    districts.forEach(d => { districtNameById[d.rowId] = d.districtName; });
+    return clusters
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10)
+            .map((c, i) => {
+        // Label the cluster with whichever district most of its cases belong to,
+        // and whichever police station (finer-grained than district) is most
+        // common, so hotspots in the same district are still distinguishable.
+        const districtVotes = {};
+        const unitVotes = {};
+        c.points.forEach(p => {
+          const dName = districtNameById[p.districtId];
+          if (dName) districtVotes[dName] = (districtVotes[dName] || 0) + 1;
+          if (p.unitName) unitVotes[p.unitName] = (unitVotes[p.unitName] || 0) + 1;
+        });
+        const districtName = Object.entries(districtVotes).sort((a, b) => b[1] - a[1])[0]?.[0] || 'Unnamed area';
+        const stationName = Object.entries(unitVotes).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+        const dominantCrime = (() => {
+          const crimeVotes = {};
+          c.points.forEach(p => { if (p.crimeType) crimeVotes[p.crimeType] = (crimeVotes[p.crimeType] || 0) + 1; });
+          return Object.entries(crimeVotes).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+        })();
+                return { ...c, rank: i + 1, districtName, stationName, dominantCrime };
+      });
+  }, [cases, selectedDistrict, districts]);
  const startVoiceInput = () => {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
@@ -761,15 +920,91 @@ if (!currentUser) {
  🌐 {t.langToggle}
 </button>
 
-          <button className={activeTab === 'dashboard' ? 'tab-active' : ''} onClick={() => setActiveTab('dashboard')}>Dashboard</button>
-          <button className={activeTab === 'network' ? 'tab-active' : ''} onClick={() => setActiveTab('network')}>Criminal Network</button>
-          <button className={activeTab === 'knowledge' ? 'tab-active' : ''} onClick={() => setActiveTab('knowledge')}>Knowledge Base</button>
-<button className={activeTab === 'patrol' ? 'tab-active' : ''} onClick={() => setActiveTab('patrol')}>AI Patrol Recommendation</button>
-<button className="logout-btn" onClick={handleLogout} title={currentUser.fullName || currentUser.username}>
-  🔓 Logout
+                    {allowedTabs.includes('dashboard') && <button className={activeTab === 'dashboard' ? 'tab-active' : ''} onClick={() => setActiveTab('dashboard')}>Dashboard</button>}
+          {allowedTabs.includes('network') && <button className={activeTab === 'network' ? 'tab-active' : ''} onClick={() => setActiveTab('network')}>Criminal Network</button>}
+                    {allowedTabs.includes('priority') && <button className={activeTab === 'priority' ? 'tab-active' : ''} onClick={() => setActiveTab('priority')}>Priority Action</button>}
+                    {allowedTabs.includes('knowledge') && <button className={activeTab === 'knowledge' ? 'tab-active' : ''} onClick={() => setActiveTab('knowledge')}>Knowledge Base</button>}
+          {allowedTabs.includes('face') && <button className={activeTab === 'face' ? 'tab-active' : ''} onClick={() => setActiveTab('face')}>Face Match</button>}
+          {allowedTabs.includes('patrol') && <button className={activeTab === 'patrol' ? 'tab-active' : ''} onClick={() => setActiveTab('patrol')}>AI Patrol Recommendation</button>}
+<div className="profile-widget" style={{ position: 'relative' }}>
+  <button
+    className="profile-trigger"
+    onClick={() => setShowProfileCard(v => !v)}
+    style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(217,164,65,0.06)', border: '1px solid rgba(217,164,65,0.25)', borderRadius: 20, padding: '4px 12px 4px 4px', cursor: 'pointer', color: '#E8ECF3', transition: 'background 0.15s' }}
+    onMouseEnter={e => e.currentTarget.style.background = 'rgba(217,164,65,0.12)'}
+    onMouseLeave={e => e.currentTarget.style.background = 'rgba(217,164,65,0.06)'}
+  >
+    <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'linear-gradient(135deg, #1A2438, #0F1523)', border: '1.5px solid #D9A441', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#D9A441', flexShrink: 0 }}>
+      {(currentUser?.fullName || currentUser?.username || '?').charAt(0).toUpperCase()}
+    </div>
+    <span style={{ fontSize: 12.5, fontWeight: 500 }}>{currentUser?.fullName || currentUser?.username}</span>
+    <ChevronDown size={14} style={{ color: '#8B96AA', transform: showProfileCard ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
+  </button>
 
-</button>
+  {showProfileCard && (
+    <div
+      style={{ position: 'absolute', top: '120%', right: 0, width: 280, background: '#111827', border: '1px solid rgba(217,164,65,0.3)', borderRadius: 10, overflow: 'hidden', zIndex: 50, boxShadow: '0 12px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(217,164,65,0.05)' }}
+      onMouseLeave={() => setShowProfileCard(false)}
+    >
+      <div style={{ background: 'linear-gradient(135deg, #1A2438 0%, #0F1523 100%)', padding: '18px 16px', position: 'relative', borderBottom: '2px solid #D9A441' }}>
+        <div style={{ position: 'absolute', top: 10, right: 12, opacity: 0.15 }}>
+          <ShieldCheck size={38} color="#D9A441" />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'linear-gradient(135deg, #2A3652, #1A2438)', border: '2px solid #D9A441', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 19, fontWeight: 700, color: '#D9A441', flexShrink: 0, boxShadow: '0 0 12px rgba(217,164,65,0.25)' }}>
+            {(currentUser?.fullName || currentUser?.username || '?').charAt(0).toUpperCase()}
+          </div>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: '#F0F3F8' }}>{currentUser?.fullName || currentUser?.username}</div>
+            <div style={{ fontSize: 11.5, color: '#D9A441', fontWeight: 600, marginTop: 1 }}>{currentUser?.designation || currentUser?.role}</div>
+          </div>
+        </div>
+      </div>
 
+      <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {currentUser?.badgeNumber && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <BadgeCheck size={15} color="#8B96AA" style={{ flexShrink: 0 }} />
+            <div style={{ fontSize: 12 }}>
+              <span style={{ color: '#8B96AA' }}>Badge No. </span>
+              <span style={{ color: '#E8ECF3', fontWeight: 600 }}>{currentUser.badgeNumber}</span>
+            </div>
+          </div>
+        )}
+        {currentUser?.postedUnit && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Building2 size={15} color="#8B96AA" style={{ flexShrink: 0 }} />
+            <div style={{ fontSize: 12, color: '#E8ECF3' }}>{currentUser.postedUnit}</div>
+          </div>
+        )}
+        {currentUser?.postedDistrict && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <MapPin size={15} color="#8B96AA" style={{ flexShrink: 0 }} />
+            <div style={{ fontSize: 12, color: '#E8ECF3' }}>{currentUser.postedDistrict} District</div>
+          </div>
+        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <ShieldCheck size={15} color="#8B96AA" style={{ flexShrink: 0 }} />
+          <div style={{ fontSize: 12, color: '#E8ECF3' }}>{currentUser?.role}</div>
+        </div>
+      </div>
+
+      <div style={{ padding: '0 16px 16px' }}>
+        <button
+          className="logout-btn"
+          onClick={handleLogout}
+          style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '8px 0', background: 'rgba(217,79,79,0.08)', border: '1px solid rgba(217,79,79,0.3)', borderRadius: 6, color: '#E88686', cursor: 'pointer', fontSize: 12, fontWeight: 600, transition: 'background 0.15s' }}
+          onMouseEnter={e => e.currentTarget.style.background = 'rgba(217,79,79,0.16)'}
+          onMouseLeave={e => e.currentTarget.style.background = 'rgba(217,79,79,0.08)'}
+        >
+          <LogOut size={13} />
+          Logout
+        </button>
+      </div>
+    </div>
+  )}
+</div>
+   
 <div
   ref={pdfExportRef}
   style={{
@@ -872,9 +1107,32 @@ if (!currentUser) {
   Crime Hotspot Zones
 </label>
 
-          {cctvData && (
+                    {cctvData && (
             <div className="cctv-summary mono">
               <div>{cctvData.unitsWithoutCCTV} areas without CCTV</div>
+            </div>
+          )}
+
+          {!selectedDistrict && topStateHotspots.length > 0 && (
+            <div className="top-hotspots-panel">
+              <h4 style={{ margin: '16px 0 8px', fontSize: 12, color: '#8B96AA', textTransform: 'uppercase', letterSpacing: 0.5 }}>Top Hotspots</h4>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                {topStateHotspots.map(h => (
+                  <div
+                    key={h.rank}
+                    onClick={() => setSelectedHotspot(h)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: selectedHotspot?.rank === h.rank ? '#1A2438' : '#111827', border: selectedHotspot?.rank === h.rank ? '1px solid #D9A441' : '1px solid #232D42', borderRadius: 6, cursor: 'pointer' }}
+                  >
+                    <div style={{ width: 24, height: 24, borderRadius: '50%', background: h.count >= 200 ? '#A6231F' : h.count >= 100 ? '#E0792B' : '#4A7FB5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
+                      {h.rank}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#E8ECF3', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{h.districtName}</div>
+                      <div style={{ fontSize: 10, color: '#8B96AA', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{h.stationName || `${h.count} cases`}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </aside>
@@ -900,9 +1158,53 @@ if (!currentUser) {
             <DistrictBoundaries selectedDistrictName={DB_TO_GEOJSON_NAME[districts.find(d => d.rowId === selectedDistrict)?.districtName] || null} />
             <ClusterLayer cases={cases} />
             <CctvLayer cctvData={cctvData} showCctv={showCctv} showRecommendations={showRecommendations} activeCameras={activeCameras} showActiveCameras={showActiveCameras} />
-            <HotspotZoneLayer cases={cases} selectedDistrict={selectedDistrict} showHotspotZones={showHotspotZones} />
+                        <HotspotZoneLayer cases={cases} selectedDistrict={selectedDistrict} showHotspotZones={showHotspotZones} />
+                        <MapFlyTo target={selectedHotspot} />
+            <SelectedHotspotBoundary hotspot={selectedHotspot} />
           </MapContainer>
- <MapLegend showRecommendations={showRecommendations} showActiveCameras={showActiveCameras} />
+  <MapLegend showRecommendations={showRecommendations} showActiveCameras={showActiveCameras} />
+
+      {selectedHotspot && (
+        <div style={{ position: 'absolute', top: 16, right: 16, width: 300, background: '#111827', border: '1px solid rgba(217,164,65,0.3)', borderRadius: 10, padding: 16, zIndex: 1000, boxShadow: '0 12px 32px rgba(0,0,0,0.5)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: '#E8ECF3' }}>{selectedHotspot.districtName}</div>
+              {selectedHotspot.stationName && <div style={{ fontSize: 11, color: '#8B96AA', marginTop: 2 }}>{selectedHotspot.stationName}</div>}
+            </div>
+            <button onClick={() => setSelectedHotspot(null)} style={{ background: 'none', border: 'none', color: '#8B96AA', cursor: 'pointer', fontSize: 16, lineHeight: 1 }}>&times;</button>
+          </div>
+
+          <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{
+              width: 48, height: 48, borderRadius: '50%',
+              background: selectedHotspot.count >= 200 ? '#A6231F' : selectedHotspot.count >= 100 ? '#E0792B' : '#4A7FB5',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontWeight: 700, color: '#fff', flexShrink: 0
+            }}>
+              {selectedHotspot.count >= 200 ? 'High' : selectedHotspot.count >= 100 ? 'Med' : 'Low'}
+            </div>
+            <div style={{ fontSize: 11, color: '#8B96AA' }}>
+              Risk level based on<br />case density in this area
+            </div>
+          </div>
+
+          <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+              <span style={{ color: '#8B96AA' }}>Total Cases</span>
+              <span style={{ color: '#E8ECF3', fontWeight: 600 }}>{selectedHotspot.count}</span>
+            </div>
+            {selectedHotspot.dominantCrime && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                <span style={{ color: '#8B96AA' }}>Primary Crime</span>
+                <span style={{ color: '#E8ECF3', fontWeight: 600 }}>{selectedHotspot.dominantCrime}</span>
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+              <span style={{ color: '#8B96AA' }}>Cluster Radius</span>
+              <span style={{ color: '#E8ECF3', fontWeight: 600 }}>{selectedHotspot.radiusKm?.toFixed(1)} km</span>
+            </div>
+          </div>
+        </div>
+      )}
                  </div>
 
       <aside className="side-panel">
@@ -1073,12 +1375,62 @@ if (!currentUser) {
             </div>
           </div>
         )}
+{courtHistoryModal && (
+  <div className="court-modal-overlay" onClick={() => setCourtHistoryModal(null)}>
+    <div className="court-modal" onClick={e => e.stopPropagation()}>
+      <div className="court-modal-header">
+        <h4>⚖️ Court History</h4>
+        <button className="court-modal-close" onClick={() => setCourtHistoryModal(null)}>&times;</button>
+      </div>
+      <div className="court-modal-body">
+        {courtHistoryModal.loading && <div className="text-muted">Loading...</div>}
+        {!courtHistoryModal.loading && courtHistoryModal.cases.length === 0 && (
+          <div className="text-muted">No court records found for this case.</div>
+        )}
+        {courtHistoryModal.cases.map(c => (
+          <div key={c.caseId} className="court-case-card">
+            <div className="court-case-title">
+              {c.firNumber} — {c.crimeType}
+              <span className="court-status-badge" style={{ background: STATUS_COLORS[c.status] || '#8B96AA', color: '#0F1523' }}>
+                {c.status}
+              </span>
+            </div>
+
+            {c.hearings.length === 0 && (
+              <div className="court-empty-note">No court hearings recorded yet — case is {c.status.toLowerCase()}.</div>
+            )}
+
+            {c.hearings.length > 0 && (
+              <div className="court-timeline">
+                {c.hearings.map((h, i) => (
+                  <div key={i} className="court-timeline-item">
+                    <div className="court-timeline-date">{h.hearingDate}</div>
+                    <div><span className="court-timeline-purpose">{h.purpose}</span> — {h.outcome}</div>
+                    <div style={{ color: '#8B96AA', fontSize: 11 }}>{h.courtName} · {h.judgeName}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {c.disposition && (
+              <div className={`court-disposition-box ${c.disposition.dispositionType === 'Convicted' ? 'convicted' : c.disposition.dispositionType === 'Acquitted' ? 'acquitted' : 'other'}`}>
+                <strong>{c.disposition.dispositionType}</strong> on {c.disposition.dispositionDate}
+                {c.disposition.sentenceDetails && <div style={{ marginTop: 4 }}>{c.disposition.sentenceDetails}</div>}
+                <div style={{ color: '#8B96AA', marginTop: 4 }}>{c.disposition.courtName}</div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  </div>
+)}
       </aside>
       </div>
 
       <div className="analytics-toggle-row">
         <button className="analytics-toggle-btn" onClick={() => setShowAnalytics(v => !v)}>
-          Analytics {showAnalytics ? 'up' : 'down'}
+          📊 Analytics {showAnalytics ? '▲' : '▼'}
         </button>
       </div>
 
@@ -1087,6 +1439,10 @@ if (!currentUser) {
       )}
       </>
       )}
+
+{activeTab === 'priority' && (
+  <PriorityActionPanel functionsBase={FUNCTIONS_BASE} />
+)}
 
       {activeTab === 'network' && (
         <div className="network-tab-content">
@@ -1099,8 +1455,16 @@ if (!currentUser) {
           <KnowledgeBasePanel functionsBase={FUNCTIONS_BASE} lang={lang} />
         </div>
       )}
-      {activeTab === 'patrol' && (
-        <div className="patrol-tab-content">
+          {activeTab === 'face' && (
+  <div className="kb-tab-content">
+    <FaceRecognitionPanel
+      functionsBase={FUNCTIONS_BASE}
+    />
+  </div>
+)}
+
+{activeTab === 'patrol' && (
+      <div className="patrol-tab-content">
           <PatrolRecommendationPanel functionsBase={FUNCTIONS_BASE} districts={districts} initialDistrictId={selectedDistrict} />
         </div>
       )}
@@ -1334,11 +1698,415 @@ function ResizeHandle({ currentWidth, setWidth, min, max, direction, defaultWidt
     </div>
   );
 }
+
+function OffenderMapLayer({ graphData, onSelectOffender, selectedOffenderId, showAllLinks }) {
+  const map = useMap();
+
+  useEffect(() => {
+    const offenderNodesWithCoords = graphData.nodes.filter(
+      n => n.type === 'offender' && typeof n.centroidLat === 'number' && typeof n.centroidLon === 'number'
+    );
+    const coordById = {};
+    offenderNodesWithCoords.forEach(n => { coordById[n.id] = [n.centroidLat, n.centroidLon]; });
+
+    const offenderLinksWithCoords = graphData.links.filter(l => {
+      const sourceId = typeof l.source === 'object' ? l.source.id : l.source;
+      const targetId = typeof l.target === 'object' ? l.target.id : l.target;
+      return l.type === 'offender-link' && coordById[sourceId] && coordById[targetId];
+    });
+
+    const linkColorFor = (strength) => strength === 'strong'
+      ? 'rgba(224, 138, 62, 0.9)'
+      : strength === 'medium'
+        ? 'rgba(74, 127, 181, 0.65)'
+        : 'rgba(139, 150, 170, 0.35)';
+
+    // Cluster offender markers -- same library already used for the Dashboard
+    // map's case markers. Without this, 400+ overlapping circles at state
+    // zoom are unreadable.
+    const clusterGroup = L.markerClusterGroup({
+      maxClusterRadius: 50,
+      spiderfyOnMaxZoom: true,
+      iconCreateFunction: function (cluster) {
+        const count = cluster.getChildCount();
+        return L.divIcon({
+          html: `<div style="background:#8B96AA;border-radius:50%;width:38px;height:38px;display:flex;align-items:center;justify-content:center;color:#0F1523;font-weight:700;font-size:13px;border:2px solid white;">${count}</div>`,
+          className: 'offender-cluster-icon',
+          iconSize: L.point(38, 38)
+        });
+      }
+    });
+
+    offenderNodesWithCoords.forEach(n => {
+      const color = getRiskColor(n.riskScore || 0);
+      const marker = L.circleMarker([n.centroidLat, n.centroidLon], {
+        radius: Math.min(6 + (n.caseCount || 1) * 1.2, 20),
+        color: '#fff',
+        weight: 1,
+        fillColor: color,
+        fillOpacity: 0.85
+      });
+      marker.bindPopup(
+        `<div style="font-size:12px;"><strong>${n.label}</strong><br/>${n.caseCount} linked cases &middot; risk ${n.riskScore}/100<br/>${(n.districts || []).join(', ') || 'Unknown district'}</div>`
+      );
+      marker.on('click', () => onSelectOffender(n));
+      clusterGroup.addLayer(marker);
+    });
+
+    // Default: only draw lines for the currently-selected offender (clicking a
+    // marker), not all ~2,000+ links at once -- that's what made the map
+    // unreadable before. "Show all connections" toggle overrides this.
+    const linksToDraw = showAllLinks
+      ? offenderLinksWithCoords
+      : offenderLinksWithCoords.filter(l => {
+          const sourceId = typeof l.source === 'object' ? l.source.id : l.source;
+          const targetId = typeof l.target === 'object' ? l.target.id : l.target;
+          return selectedOffenderId && (sourceId === selectedOffenderId || targetId === selectedOffenderId);
+        });
+
+    const linkLayerGroup = L.layerGroup();
+    linksToDraw.forEach(l => {
+      const sourceId = typeof l.source === 'object' ? l.source.id : l.source;
+      const targetId = typeof l.target === 'object' ? l.target.id : l.target;
+      const line = L.polyline([coordById[sourceId], coordById[targetId]], {
+        color: linkColorFor(l.strength),
+        weight: l.strength === 'strong' ? 2.5 : l.strength === 'medium' ? 1.5 : 1,
+        dashArray: l.strength === 'weak' ? '4,4' : undefined
+      });
+      linkLayerGroup.addLayer(line);
+    });
+
+    map.addLayer(clusterGroup);
+    map.addLayer(linkLayerGroup);
+
+    return () => {
+      map.removeLayer(clusterGroup);
+      map.removeLayer(linkLayerGroup);
+    };
+  }, [graphData, onSelectOffender, selectedOffenderId, showAllLinks, map]);
+
+  return null;
+}
+
+function CrossDistrictLinksTable({ graphData, selectedOffenderId }) {
+  const rows = useMemo(() => {
+    if (!selectedOffenderId) return null;
+    const nodeById = {};
+    graphData.nodes.forEach(n => { nodeById[n.id] = n; });
+    const selected = nodeById[selectedOffenderId];
+    if (!selected) return [];
+
+    const selectedDistricts = selected.districts || [];
+
+        const strengthRank = { strong: 0, medium: 1, weak: 2 };
+    const byOtherId = {};
+
+    graphData.links
+      .filter(l => l.type === 'offender-link')
+      .forEach(l => {
+        const sourceId = typeof l.source === 'object' ? l.source.id : l.source;
+        const targetId = typeof l.target === 'object' ? l.target.id : l.target;
+        if (sourceId !== selectedOffenderId && targetId !== selectedOffenderId) return;
+        const otherId = sourceId === selectedOffenderId ? targetId : sourceId;
+        const other = nodeById[otherId];
+        if (!other) return;
+
+        // A pair can have more than one real edge (e.g. both "same case" and
+        // "same crime pattern"). Keep only the strongest one per person,
+        // rather than showing the same associate multiple times.
+        const existing = byOtherId[otherId];
+        if (existing && strengthRank[existing.strength] <= strengthRank[l.strength]) return;
+
+        const otherDistricts = other.districts || [];
+        const isCrossDistrict = selectedDistricts.length && otherDistricts.length &&
+          !selectedDistricts.some(d => otherDistricts.includes(d));
+
+        byOtherId[otherId] = {
+          key: otherId,
+          name: other.label,
+          districts: otherDistricts.join(', ') || 'Unknown',
+          strength: l.strength,
+          crossDistrict: isCrossDistrict
+        };
+      });
+
+    return Object.values(byOtherId)
+      .sort((a, b) => strengthRank[a.strength] - strengthRank[b.strength]);
+  }, [graphData, selectedOffenderId]);
+
+  if (rows === null) {
+    return (
+      <div style={{ padding: 12, color: '#8B96AA', fontSize: 12, textAlign: 'center', background: '#111827', border: '1px solid #232D42', borderRadius: 8 }}>
+        Click an offender on the map to see their real associates and which districts they operate in.
+      </div>
+    );
+  }
+
+  if (rows.length === 0) {
+    return (
+      <div style={{ padding: 12, color: '#8B96AA', fontSize: 12, textAlign: 'center', background: '#111827', border: '1px solid #232D42', borderRadius: 8 }}>
+        This offender has no recorded associates in the current data.
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ maxHeight: 150, overflowY: 'auto', border: '1px solid #232D42', borderRadius: 8, background: '#111827' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
+        <thead style={{ position: 'sticky', top: 0, background: '#1A2438' }}>
+          <tr>
+            <th style={{ textAlign: 'left', padding: '6px 10px', color: '#8B96AA' }}>Associate</th>
+            <th style={{ textAlign: 'left', padding: '6px 10px', color: '#8B96AA' }}>Districts</th>
+            <th style={{ textAlign: 'left', padding: '6px 10px', color: '#8B96AA' }}>Strength</th>
+            <th style={{ textAlign: 'left', padding: '6px 10px', color: '#8B96AA' }}></th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(r => (
+            <tr key={r.key} style={{ borderTop: '1px solid #1A2438' }}>
+              <td style={{ padding: '5px 10px', color: '#E8ECF3' }}>{r.name}</td>
+              <td style={{ padding: '5px 10px', color: '#C7CEDA' }}>{r.districts}</td>
+              <td style={{ padding: '5px 10px' }}>
+                <span style={{
+                  fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 10,
+                  background: r.strength === 'strong' ? 'rgba(224,138,62,0.15)' : r.strength === 'medium' ? 'rgba(74,127,181,0.15)' : 'rgba(139,150,170,0.15)',
+                  color: r.strength === 'strong' ? '#E08A3E' : r.strength === 'medium' ? '#4A7FB5' : '#8B96AA'
+                }}>{r.strength}</span>
+              </td>
+              <td style={{ padding: '5px 10px' }}>
+                {r.crossDistrict && (
+                  <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 10, background: 'rgba(217,164,65,0.15)', color: '#D9A441' }}>
+                    Cross-District
+                  </span>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function OffenderMapView({ graphData, onSelectOffender, selectedOffenderId, showAllLinks }) {
+  const offenderNodesWithCoords = graphData.nodes.filter(
+    n => n.type === 'offender' && typeof n.centroidLat === 'number' && typeof n.centroidLon === 'number'
+  );
+
+  if (offenderNodesWithCoords.length === 0) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#8B96AA', fontSize: 12, textAlign: 'center', padding: 24 }}>
+        None of the offenders currently shown have linked cases with real coordinates, so they can't be placed on the map.
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 10 }}>
+      <div style={{ flex: 1, minHeight: 0, borderRadius: 8, overflow: 'hidden' }}>
+        <MapContainer
+          center={[15.3173, 75.7139]}
+          zoom={7}
+          minZoom={6}
+          maxBounds={KARNATAKA_BOUNDS}
+          maxBoundsViscosity={1.0}
+          style={{ height: '100%', width: '100%' }}
+        >
+          <TileLayer
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            attribution='&copy; OpenStreetMap contributors'
+          />
+          <OffenderMapLayer
+            graphData={graphData}
+            onSelectOffender={onSelectOffender}
+            selectedOffenderId={selectedOffenderId}
+            showAllLinks={showAllLinks}
+          />
+        </MapContainer>
+      </div>
+            <div style={{ flexShrink: 0 }}>
+        <CrossDistrictLinksTable graphData={graphData} selectedOffenderId={selectedOffenderId} />
+      </div>
+    </div>
+  );
+}
+
+function PriorityActionPanel({ functionsBase }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const loadPriorityActions = async () => {
+    try {
+      setLoading(true);
+      setError('');
+
+      const response = await fetch(
+        `${functionsBase}/priority-action-function/`
+      );
+
+      if (!response.ok) {
+        throw new Error(`Server returned ${response.status}`);
+      }
+
+      const result = await response.json();
+      setData(result);
+    } catch (err) {
+      console.error('Priority Action error:', err);
+      setError(err.message || 'Unable to load priority actions.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadPriorityActions();
+  }, [functionsBase]);
+
+  if (loading) {
+    return (
+      <div className="priority-tab-content">
+        <div className="priority-loading">
+          Loading priority actions...
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="priority-tab-content">
+        <div className="priority-error">
+          <strong>Unable to load Priority Action Center</strong>
+          <p>{error}</p>
+
+          <button onClick={loadPriorityActions}>
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const items = data?.items || [];
+
+  return (
+    <div className="priority-tab-content">
+
+      <div className="priority-header">
+        <div>
+          <h2>Priority Action Center</h2>
+          <p>
+            AI-assisted identification of cases and operational issues
+            requiring attention.
+          </p>
+        </div>
+
+        <button
+          className="priority-refresh-btn"
+          onClick={loadPriorityActions}
+        >
+          Refresh
+        </button>
+      </div>
+
+      <div className="priority-summary">
+
+        <div className="priority-summary-card">
+          <span>Total Actions</span>
+          <strong>{data?.totalItems ?? 0}</strong>
+        </div>
+
+        <div className="priority-summary-card critical">
+          <span>Critical</span>
+          <strong>{data?.criticalCount ?? 0}</strong>
+        </div>
+
+        <div className="priority-summary-card high">
+          <span>High</span>
+          <strong>{data?.highCount ?? 0}</strong>
+        </div>
+
+      </div>
+
+      <div className="priority-list">
+
+        {items.length === 0 ? (
+          <div className="priority-empty">
+            <strong>No priority actions detected</strong>
+            <p>
+              The current data does not contain any items requiring
+              immediate attention.
+            </p>
+          </div>
+        ) : (
+          items.map((item, index) => (
+            <div
+              className={`priority-item priority-${(
+                item.priority || 'medium'
+              ).toLowerCase()}`}
+              key={`${item.category}-${item.title}-${index}`}
+            >
+
+              <div className="priority-item-top">
+
+                <span className="priority-number">
+                  #{index + 1}
+                </span>
+
+                <span className="priority-category">
+                  {item.category}
+                </span>
+
+                <span className="priority-level">
+                  {item.priority}
+                </span>
+
+              </div>
+
+              <h3>{item.title}</h3>
+
+              <p>{item.detail}</p>
+
+              <div className="priority-item-footer">
+
+                {item.district && (
+                  <span>
+                    District: <strong>{item.district}</strong>
+                  </span>
+                )}
+
+                {item.linkType && (
+                  <span>
+                    Source: <strong>{item.linkType}</strong>
+                  </span>
+                )}
+
+              </div>
+
+            </div>
+          ))
+        )}
+
+      </div>
+
+      {data?.generatedAt && (
+        <div className="priority-generated">
+          Last updated:{' '}
+          {new Date(data.generatedAt).toLocaleString()}
+        </div>
+      )}
+
+    </div>
+  );
+}
 function NetworkGraphPanel({ functionsBase }) {
   const [rawData, setRawData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedOffender, setSelectedOffender] = useState(null);
-  const [showCaseNetwork, setShowCaseNetwork] = useState(false);
+   const [showCaseNetwork, setShowCaseNetwork] = useState(false);
+   const [networkView, setNetworkView] = useState('graph'); // 'graph' | 'map'
+  const [showAllLinks, setShowAllLinks] = useState(false);
   const [districtFilter, setDistrictFilter] = useState('');
   const [crimeTypeFilter, setCrimeTypeFilter] = useState('');
   const [yearFilter, setYearFilter] = useState('');
@@ -1346,6 +2114,10 @@ function NetworkGraphPanel({ functionsBase }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [aiSummary, setAiSummary] = useState(null);
   const [aiSummaryLoading, setAiSummaryLoading] = useState(false);
+  const [courtHistory, setCourtHistory] = useState(null);
+const [courtHistoryLoading, setCourtHistoryLoading] = useState(false);
+const [relatedCasesFilter, setRelatedCasesFilter] = useState(null); // { associateId, associateName, caseIds } | null
+
   const [highlightNodeIds, setHighlightNodeIds] = useState(null);
   const [highlightLinkSet, setHighlightLinkSet] = useState(null);
 const [filterWidth, setFilterWidth] = useState(() => {
@@ -1450,9 +2222,8 @@ const [filterWidth, setFilterWidth] = useState(() => {
     if (districtFilter && !(n.districts || []).includes(districtFilter)) return false;
     if (crimeTypeFilter && !(n.crimeTypeBreakdown || []).some(t => t.crimeType === crimeTypeFilter)) return false;
     if (yearFilter && !offenderActiveInYear(n, Number(yearFilter))) return false;
-    if (searchTerm && !n.label.toLowerCase().includes(searchTerm.toLowerCase())) return false;
-    return true;
-  }), [offenderNodes, districtFilter, crimeTypeFilter, yearFilter, searchTerm]);
+        return true;
+  }), [offenderNodes, districtFilter, crimeTypeFilter, yearFilter]);
 
   const preIsolationIds = useMemo(() => new Set(preIsolationFilteredNodes.map(n => n.id)), [preIsolationFilteredNodes]);
 
@@ -1490,15 +2261,47 @@ const [filterWidth, setFilterWidth] = useState(() => {
       links: [...offenderLinks, ...relevantCaseEdges.map(e => ({ ...e }))]
     };
   }, [showCaseNetwork, filteredOffenderNodes, filteredIds, offenderEdgesAll, caseEdgesAll, caseNodesAll]);
+const connectedAssociates = useMemo(() => {
+  if (!selectedOffender) return [];
+  const myId = `offender-${selectedOffender.aadhaar}`;
+  return graphData.links
+    .filter(l => {
+      const s = typeof l.source === 'object' ? l.source.id : l.source;
+      const t = typeof l.target === 'object' ? l.target.id : l.target;
+      return l.type === 'offender-link' && (s === myId || t === myId);
+    })
+    .map(l => {
+      const s = typeof l.source === 'object' ? l.source.id : l.source;
+      const t = typeof l.target === 'object' ? l.target.id : l.target;
+      const otherId = s === myId ? t : s;
+      const otherNode = graphData.nodes.find(n => n.id === otherId);
+           return {
+        id: otherId,
+        name: otherNode?.label || 'Unknown',
+        strength: l.strength,
+        reason: l.reason,
+        riskScore: otherNode?.riskScore,
+        sharedCaseCount: l.sharedCaseCount ?? 0,
+        sharedCaseIds: l.sharedCaseIds || []
+      };
+    });
+}, [selectedOffender, graphData]);
 
   const selectedOffenderCases = useMemo(() => {
     if (!selectedOffender) return [];
     const myCaseEdges = caseEdgesAll.filter(e => e.source === selectedOffender.id);
-    const myCaseIds = new Set(myCaseEdges.map(e => e.target));
+    let myCaseIds = new Set(myCaseEdges.map(e => e.target));
+    // When a "Related Cases" filter is active, narrow to only the FIRs
+    // shared with that specific associate, without altering the underlying
+    // case/edge data itself.
+    if (relatedCasesFilter && relatedCasesFilter.caseIds) {
+      const sharedSet = new Set(relatedCasesFilter.caseIds);
+      myCaseIds = new Set([...myCaseIds].filter(id => sharedSet.has(id)));
+    }
     return caseNodesAll
       .filter(n => myCaseIds.has(n.id))
       .sort((a, b) => (a.dateOfFIR || '').localeCompare(b.dateOfFIR || ''));
-  }, [selectedOffender, caseEdgesAll, caseNodesAll]);
+  }, [selectedOffender, caseEdgesAll, caseNodesAll, relatedCasesFilter]);
 
   useEffect(() => {
     if (!fgRef.current || graphData.nodes.length === 0) return;
@@ -1541,6 +2344,8 @@ const [filterWidth, setFilterWidth] = useState(() => {
     if (node.type !== 'offender') return;
     setSelectedOffender(node);
     setAiSummary(null);
+    setCourtHistory(null);
+setCourtHistoryLoading(false);
 
     const connectedLinks = graphData.links.filter(l => {
       const sourceId = typeof l.source === 'object' ? l.source.id : l.source;
@@ -1554,16 +2359,38 @@ const [filterWidth, setFilterWidth] = useState(() => {
       connectedIds.add(sourceId);
       connectedIds.add(targetId);
     });
-    setHighlightNodeIds(connectedIds);
+        setHighlightNodeIds(connectedIds);
     setHighlightLinkSet(new Set(connectedLinks));
   };
+
+  // Search finds and selects a match (revealing their real connections),
+  // rather than hiding every other offender -- a single isolated match had
+  // no one left to draw a link to.
+  useEffect(() => {
+    if (!searchTerm.trim()) return;
+    const match = offenderNodes.find(n => n.label.toLowerCase().includes(searchTerm.toLowerCase()));
+    if (match) {
+      const graphNode = graphData.nodes.find(n => n.id === match.id);
+      if (graphNode) handleNodeClick(graphNode);
+    }
+  }, [searchTerm]);
 
   const clearSelection = () => {
     setSelectedOffender(null);
     setAiSummary(null);
+    setCourtHistory(null);
+    setCourtHistoryLoading(false);
     setHighlightNodeIds(null);
     setHighlightLinkSet(null);
   };
+const fetchCourtHistory = () => {
+  if (!selectedOffender) return;
+  setCourtHistoryLoading(true);
+  fetch(`${functionsBase}/case-court-history-function/?aadhaar=${encodeURIComponent(selectedOffender.aadhaar)}`)
+    .then(res => res.json())
+    .then(data => { setCourtHistory(data); setCourtHistoryLoading(false); })
+    .catch(err => { console.error('Court history fetch error:', err); setCourtHistoryLoading(false); });
+};
 
   const generateSummary = () => {
     if (!selectedOffender) return;
@@ -1623,8 +2450,39 @@ const [filterWidth, setFilterWidth] = useState(() => {
         <StatCard label="Average Risk Score" value={`${stats.avgRisk}/100`} />
         <StatCard label="Repeat Offenders" value={stats.repeatOffenderCount} />
         <StatCard label="High-Risk Offenders (80+)" value={stats.highRiskCount} />
-        <StatCard label="Cross-District Networks" value={stats.crossDistrictCount} />
+                <StatCard label="Cross-District Networks" value={stats.crossDistrictCount} />
       </div>
+
+              <div style={{ display: 'flex', gap: 8, flexShrink: 0, alignItems: 'center' }}>
+          <button
+            onClick={() => setNetworkView('graph')}
+            style={{
+              padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              background: networkView === 'graph' ? 'var(--accent)' : '#111827',
+              color: networkView === 'graph' ? '#fff' : '#8B96AA',
+              border: '1px solid #232D42'
+            }}
+          >
+            🕸 Network View
+          </button>
+          <button
+            onClick={() => setNetworkView('map')}
+            style={{
+              padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              background: networkView === 'map' ? 'var(--accent)' : '#111827',
+              color: networkView === 'map' ? '#fff' : '#8B96AA',
+              border: '1px solid #232D42'
+            }}
+          >
+            🗺 Map View
+          </button>
+          {networkView === 'map' && (
+            <label style={{ fontSize: 12, color: '#C7CEDA', display: 'flex', alignItems: 'center', gap: 6, marginLeft: 8 }}>
+              <input type="checkbox" checked={showAllLinks} onChange={e => setShowAllLinks(e.target.checked)} />
+              Show all connections
+            </label>
+          )}
+        </div>
 
       <div style={{ display: 'flex', gap: 16, flex: 1, minHeight: 0 }}>
        <div style={{ width: filterWidth, flexShrink: 0, background: '#111827', border: '1px solid #232D42', borderRadius: 8, padding: 16, overflowY: 'auto' }}>
@@ -1712,119 +2570,175 @@ const [filterWidth, setFilterWidth] = useState(() => {
               display: 'flex'
             }}
           >
-            <div style={{ flex: 1, position: 'relative', minWidth: 0, minHeight: 0 }} ref={setContainerRef}>
-              <div style={{ position: 'absolute', top: 8, right: 8, zIndex: 10, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <button
-                  onClick={() => fgRef.current && fgRef.current.zoom(fgRef.current.zoom() * 1.3, 200)}
-                  title="Zoom in"
-                  style={{ width: 28, height: 28, background: '#111827', border: '1px solid #232D42', color: '#E8ECF3', borderRadius: 4, cursor: 'pointer', fontSize: 14 }}
-                >+</button>
-                <button
-                  onClick={() => fgRef.current && fgRef.current.zoom(fgRef.current.zoom() * 0.77, 200)}
-                  title="Zoom out"
-                  style={{ width: 28, height: 28, background: '#111827', border: '1px solid #232D42', color: '#E8ECF3', borderRadius: 4, cursor: 'pointer', fontSize: 14 }}
-                >-</button>
-                <button
-                  onClick={() => fgRef.current && fgRef.current.zoomToFit(400, 50)}
-                  title="Reset view"
-                  style={{ width: 28, height: 28, background: '#111827', border: '1px solid #232D42', color: '#E8ECF3', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}
-                >reset</button>
-              </div>
-              <ForceGraph2D
-                ref={fgRef}
-                graphData={graphData}
-                nodeLabel={n => n.type === 'offender' ? `${n.label} (${n.caseCount} cases, risk ${n.riskScore})` : `${n.label} - ${n.crimeType} (${n.status})`}
-                nodeColor={nodeColor}
-                nodeVal={n => n.type === 'offender' ? Math.min(4 + n.caseCount * 1.2, 18) : 3}
-                linkColor={linkColor}
-                linkWidth={linkWidth}
-                linkLineDash={linkDash}
-                backgroundColor="#0F1523"
-                onNodeClick={handleNodeClick}
-                onBackgroundClick={clearSelection}
-                width={dimensions.width}
-                height={dimensions.height}
-                cooldownTime={2000}
-                enableZoomInteraction={true}
-                enablePanInteraction={true}
-                onEngineStop={() => fgRef.current && fgRef.current.zoomToFit(400, 50)}
-              />
+                        <div style={{ flex: 1, position: 'relative', minWidth: 0, minHeight: 0 }} ref={setContainerRef}>
+              {networkView === 'graph' ? (
+                <>
+                  <div style={{ position: 'absolute', top: 8, right: 8, zIndex: 10, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <button
+                      onClick={() => fgRef.current && fgRef.current.zoom(fgRef.current.zoom() * 1.3, 200)}
+                      title="Zoom in"
+                      style={{ width: 28, height: 28, background: '#111827', border: '1px solid #232D42', color: '#E8ECF3', borderRadius: 4, cursor: 'pointer', fontSize: 14 }}
+                    >+</button>
+                    <button
+                      onClick={() => fgRef.current && fgRef.current.zoom(fgRef.current.zoom() * 0.77, 200)}
+                      title="Zoom out"
+                      style={{ width: 28, height: 28, background: '#111827', border: '1px solid #232D42', color: '#E8ECF3', borderRadius: 4, cursor: 'pointer', fontSize: 14 }}
+                    >−</button>
+                    <button
+                      onClick={() => fgRef.current && fgRef.current.zoomToFit(400, 50)}
+                      title="Reset view"
+                      style={{ width: 28, height: 28, background: '#111827', border: '1px solid #232D42', color: '#E8ECF3', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}
+                    >⤢</button>
+                  </div>
+                  <ForceGraph2D
+                    ref={fgRef}
+                    graphData={graphData}
+                    nodeLabel={n => n.type === 'offender' ? `${n.label} (${n.caseCount} cases, risk ${n.riskScore})` : `${n.label} - ${n.crimeType} (${n.status})`}
+                    nodeColor={nodeColor}
+                    nodeVal={n => n.type === 'offender' ? Math.min(4 + n.caseCount * 1.2, 18) : 3}
+                    linkColor={linkColor}
+                    linkWidth={linkWidth}
+                    linkLineDash={linkDash}
+                    backgroundColor="#0F1523"
+                    onNodeClick={handleNodeClick}
+                    onBackgroundClick={clearSelection}
+                    width={dimensions.width}
+                    height={dimensions.height}
+                    cooldownTime={2000}
+                    enableZoomInteraction={true}
+                    enablePanInteraction={true}
+                    onEngineStop={() => fgRef.current && fgRef.current.zoomToFit(400, 50)}
+                  />
+                </>
+                               ) : (
+                    <OffenderMapView
+                      graphData={graphData}
+                      onSelectOffender={handleNodeClick}
+                      selectedOffenderId={selectedOffender?.id || null}
+                      showAllLinks={showAllLinks}
+                    />
+                  )}
             </div>
           </div>
         </div>
 
         {selectedOffender && (
-          <>
-            <ResizeHandle
-              currentWidth={offenderPanelWidth}
-              setWidth={setOffenderPanelWidth}
-              min={220}
-              max={560}
-              direction="grow-left"
-              defaultWidth={300}
-            />
-            <div style={{ width: offenderPanelWidth, flexShrink: 0, background: '#111827', border: '1px solid #232D42', borderRadius: 8, padding: 16, overflowY: 'auto' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h4 style={{ margin: 0, color: '#E8ECF3', fontSize: 14 }}>Selected Offender</h4>
-              <button
-                onClick={clearSelection}
-                style={{ background: 'none', border: 'none', color: '#8B96AA', cursor: 'pointer', fontSize: 16, lineHeight: 1 }}
-              >
-                &times;
-              </button>
+  <div className="court-modal-overlay" onClick={clearSelection}>
+    <div className="court-modal offender-modal" onClick={e => e.stopPropagation()}>
+      <div className="court-modal-header">
+        <h4>👤 Offender Profile</h4>
+        <button className="court-modal-close" onClick={clearSelection}>&times;</button>
+      </div>
+      <div className="court-modal-body">
+        <div className="offender-modal-hero">
+          <div>
+            <div className="offender-modal-name">{selectedOffender.label}</div>
+            <div className="offender-modal-id">ID: {selectedOffender.aadhaar}</div>
+          </div>
+          <div className="risk-badge" style={{ background: `${getRiskColor(selectedOffender.riskScore || 0)}22`, color: getRiskColor(selectedOffender.riskScore || 0) }}>
+            <div className="risk-badge-score">{selectedOffender.riskScore}</div>
+            <div className="risk-badge-label">Risk /100</div>
+          </div>
+        </div>
+
+        <DetailRow label="Total Linked Cases" value={selectedOffender.caseCount} />
+        <DetailRow label="Known Associates" value={selectedOffender.associateCount} />
+        <DetailRow label="Districts" value={(selectedOffender.districts || []).join(', ') || 'Unknown'} />
+        <DetailRow label="First Case" value={selectedOffender.firstCaseDate || 'Unknown'} />
+        <DetailRow label="Last Case" value={selectedOffender.lastCaseDate || 'Unknown'} />
+
+        <div className="offender-section-title">Crime Type Breakdown</div>
+        {(selectedOffender.crimeTypeBreakdown || []).map(t => (
+          <div key={t.crimeType} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#C7CEDA', padding: '3px 0' }}>
+            <span>{t.crimeType}</span><span>{t.count}</span>
+          </div>
+        ))}
+
+        <div className="offender-section-title">Connected To ({connectedAssociates.length})</div>
+        {connectedAssociates.length === 0 && <div className="court-empty-note">No known associates in the current graph view.</div>}
+                {connectedAssociates.map(a => (
+          <div key={a.id} className="associate-card">
+            <div>
+              <div className="associate-name">{a.name}</div>
+              <div className="associate-reason">{a.reason}</div>
+              <div style={{ fontSize: 11, color: '#8B96AA', marginTop: 2 }}>
+                {a.sharedCaseCount} related FIR{a.sharedCaseCount === 1 ? '' : 's'}
+              </div>
             </div>
-            <div style={{ marginTop: 12, fontSize: 15, fontWeight: 600, color: '#E8ECF3' }}>{selectedOffender.label}</div>
-            <div style={{ fontSize: 10, color: '#8B96AA', marginBottom: 12, wordBreak: 'break-all' }}>ID: {selectedOffender.aadhaar}</div>
-
-            <DetailRow label="Total Linked Cases" value={selectedOffender.caseCount} />
-            <DetailRow label="Known Associates" value={selectedOffender.associateCount} />
-            <DetailRow
-              label="Risk Score (heuristic)"
-              value={`${selectedOffender.riskScore} / 100`}
-              valueColor={getRiskColor(selectedOffender.riskScore || 0)}
-            />
-            <DetailRow label="Districts" value={(selectedOffender.districts || []).join(', ') || 'Unknown'} />
-            <DetailRow label="First Case" value={selectedOffender.firstCaseDate || 'Unknown'} />
-            <DetailRow label="Last Case" value={selectedOffender.lastCaseDate || 'Unknown'} />
-
-            <div style={{ marginTop: 16 }}>
-              <h5 style={{ margin: '0 0 8px', color: '#8B96AA', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>Crime Type Breakdown</h5>
-              {(selectedOffender.crimeTypeBreakdown || []).map(t => (
-                <div key={t.crimeType} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#C7CEDA', padding: '2px 0' }}>
-                  <span>{t.crimeType}</span><span>{t.count}</span>
-                </div>
-              ))}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+              <span className={`associate-strength ${a.strength}`} title="Association Strength">{a.strength}</span>
+              {a.sharedCaseCount > 0 && (
+                <button
+                  onClick={() => setRelatedCasesFilter({ associateId: a.id, associateName: a.name, caseIds: a.sharedCaseIds })}
+                  style={{ fontSize: 10, padding: '3px 8px', background: '#1A2438', border: '1px solid #232D42', color: '#D9A441', borderRadius: 4, cursor: 'pointer' }}
+                >
+                  Related Cases
+                </button>
+              )}
             </div>
+          </div>
+        ))}
 
-            <div style={{ marginTop: 16 }}>
-              <h5 style={{ margin: '0 0 8px', color: '#8B96AA', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>Linked Cases ({selectedOffenderCases.length})</h5>
-              <div style={{ maxHeight: 160, overflowY: 'auto' }}>
-                {selectedOffenderCases.map(c => (
-                  <div key={c.id} style={{ fontSize: 11, color: '#C7CEDA', padding: '6px 0', borderBottom: '1px solid #1A2438' }}>
-                    <div style={{ fontWeight: 600, color: '#E8ECF3' }}>{c.label}</div>
-                    <div style={{ color: '#8B96AA' }}>{c.crimeType} - {c.status}{c.district ? ` - ${c.district}` : ''}</div>
-                    {c.dateOfFIR && <div style={{ color: '#8B96AA' }}>{c.dateOfFIR}</div>}
+                {relatedCasesFilter && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#1A2438', border: '1px solid #D9A441', borderRadius: 6, padding: '6px 10px', marginBottom: 8, fontSize: 11 }}>
+            <span style={{ color: '#E8ECF3' }}>Showing FIRs shared with <strong>{relatedCasesFilter.associateName}</strong></span>
+            <button onClick={() => setRelatedCasesFilter(null)} style={{ background: 'none', border: 'none', color: '#D9A441', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>Clear</button>
+          </div>
+        )}
+        <div className="offender-section-title">Linked Cases ({selectedOffenderCases.length})</div>
+        {selectedOffenderCases.map(c => (
+          <div key={c.id} className="linked-case-card">
+            <div style={{ fontWeight: 600, color: '#E8ECF3' }}>{c.label}</div>
+            <div style={{ color: '#8B96AA' }}>{c.crimeType} · {c.status}{c.district ? ` · ${c.district}` : ''}</div>
+            {c.dateOfFIR && <div style={{ color: '#8B96AA' }}>{c.dateOfFIR}</div>}
+          </div>
+        ))}
+
+        <div className="offender-section-title">Court History</div>
+        {!courtHistory && !courtHistoryLoading && (
+          <button onClick={fetchCourtHistory} style={{ width: '100%', padding: 8, background: '#1A2438', border: '1px solid #232D42', color: '#E8ECF3', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>
+            View Court History
+          </button>
+        )}
+        {courtHistoryLoading && <div className="text-muted">Loading court history...</div>}
+        {courtHistory?.cases?.map(c => (
+          <div key={c.caseId} className="court-case-card" style={{ marginTop: 8 }}>
+            <div className="court-case-title">{c.firNumber} — {c.crimeType}
+              <span className="court-status-badge" style={{ background: STATUS_COLORS[c.status] || '#8B96AA', color: '#0F1523' }}>{c.status}</span>
+            </div>
+            {c.hearings.length === 0 && <div className="court-empty-note">No court hearings recorded yet — case is {c.status.toLowerCase()}.</div>}
+            {c.hearings.length > 0 && (
+              <div className="court-timeline">
+                {c.hearings.map((h, i) => (
+                  <div key={i} className="court-timeline-item">
+                    <div className="court-timeline-date">{h.hearingDate}</div>
+                    <div><span className="court-timeline-purpose">{h.purpose}</span> — {h.outcome}</div>
+                    <div style={{ color: '#8B96AA', fontSize: 11 }}>{h.courtName} · {h.judgeName}</div>
                   </div>
                 ))}
               </div>
-            </div>
-
-            <div style={{ marginTop: 16 }}>
-              <h5 style={{ margin: '0 0 8px', color: '#8B96AA', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>AI Summary</h5>
-              {!aiSummary && !aiSummaryLoading && (
-                <button
-                  onClick={generateSummary}
-                  style={{ width: '100%', padding: 8, background: '#1A2438', border: '1px solid #232D42', color: '#E8ECF3', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
-                >
-                  Generate AI Summary
-                </button>
-              )}
-              {aiSummaryLoading && <div style={{ color: '#8B96AA', fontSize: 12 }}>Generating summary...</div>}
-              {aiSummary && <div style={{ fontSize: 12, color: '#C7CEDA', lineHeight: 1.5 }}>{aiSummary}</div>}
-            </div>
+            )}
+            {c.disposition && (
+              <div className={`court-disposition-box ${c.disposition.dispositionType === 'Convicted' ? 'convicted' : c.disposition.dispositionType === 'Acquitted' ? 'acquitted' : 'other'}`}>
+                <strong>{c.disposition.dispositionType}</strong> on {c.disposition.dispositionDate}
+                {c.disposition.sentenceDetails && <div style={{ marginTop: 4 }}>{c.disposition.sentenceDetails}</div>}
+              </div>
+            )}
           </div>
-          </>
+        ))}
+
+        <div className="offender-section-title">AI Summary</div>
+        {!aiSummary && !aiSummaryLoading && (
+          <button onClick={generateSummary} style={{ width: '100%', padding: 8, background: '#1A2438', border: '1px solid #232D42', color: '#E8ECF3', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>
+            Generate AI Summary
+          </button>
         )}
+        {aiSummaryLoading && <div className="text-muted">Generating summary...</div>}
+        {aiSummary && <div style={{ fontSize: 12, color: '#C7CEDA', lineHeight: 1.5 }}>{aiSummary}</div>}
+      </div>
+    </div>
+  </div>
+)}
       </div>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24, background: '#111827', border: '1px solid #232D42', borderRadius: 8, padding: '10px 16px', fontSize: 12, color: '#C7CEDA' }}>
@@ -2071,6 +2985,327 @@ function KnowledgeBasePanel({ functionsBase, lang }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+function FaceRecognitionPanel({ functionsBase }) {
+  const [modelsLoaded, setModelsLoaded] = useState(false);
+
+  const [matchImage, setMatchImage] = useState(null);
+  const [matching, setMatching] = useState(false);
+  const [matchResults, setMatchResults] = useState(null);
+  const [matchError, setMatchError] = useState(null);
+
+  const [enrollAadhaar, setEnrollAadhaar] = useState('');
+  const [enrollName, setEnrollName] = useState('');
+  const [enrollImage, setEnrollImage] = useState(null);
+  const [enrolling, setEnrolling] = useState(false);
+  const [enrollResult, setEnrollResult] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    Promise.all([
+      faceapi.nets.tinyFaceDetector.loadFromUri('/models'),
+      faceapi.nets.faceLandmark68Net.loadFromUri('/models'),
+      faceapi.nets.faceRecognitionNet.loadFromUri('/models')
+    ])
+      .then(() => {
+        if (!cancelled) {
+          setModelsLoaded(true);
+        }
+      })
+      .catch(err => {
+        if (!cancelled) {
+          console.error('Face model load error:', err);
+          setMatchError(
+            'Face recognition models could not be loaded. Make sure the model files are available in public/models.'
+          );
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const extractDescriptor = async (imageFile) => {
+    const img = await faceapi.bufferToImage(imageFile);
+
+    const detection = await faceapi
+      .detectSingleFace(
+        img,
+        new faceapi.TinyFaceDetectorOptions()
+      )
+      .withFaceLandmarks()
+      .withFaceDescriptor();
+
+    if (!detection) {
+      throw new Error(
+        'No face detected in this image. Try a clearer, front-facing photo.'
+      );
+    }
+
+    return Array.from(detection.descriptor);
+  };
+
+  const handleMatch = async () => {
+    if (!matchImage || !modelsLoaded) return;
+
+    setMatching(true);
+    setMatchError(null);
+    setMatchResults(null);
+
+    try {
+      const descriptor = await extractDescriptor(matchImage);
+
+      const res = await fetch(
+        `${functionsBase}/face-function/?mode=match`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            faceDescriptor: descriptor
+          })
+        }
+      );
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(
+          data.error || 'Face matching failed.'
+        );
+      }
+
+      setMatchResults(data.matches || []);
+    } catch (err) {
+      setMatchError(
+        err.message || 'Face matching failed.'
+      );
+    } finally {
+      setMatching(false);
+    }
+  };
+
+  const handleEnroll = async () => {
+    if (
+      !enrollImage ||
+      !enrollAadhaar.trim() ||
+      !modelsLoaded
+    ) {
+      return;
+    }
+
+    setEnrolling(true);
+    setEnrollResult(null);
+
+    try {
+      const descriptor = await extractDescriptor(enrollImage);
+
+      const res = await fetch(
+        `${functionsBase}/face-function/?mode=enroll`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            aadhaar: enrollAadhaar.trim(),
+            offenderName: enrollName.trim(),
+            faceDescriptor: descriptor
+          })
+        }
+      );
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(
+          data.error || 'Enrollment failed.'
+        );
+      }
+
+      setEnrollResult(
+        data.enrolled
+          ? 'Enrolled successfully.'
+          : data.error || 'Enrollment failed.'
+      );
+    } catch (err) {
+      setEnrollResult(
+        err.message || 'Enrollment failed.'
+      );
+    } finally {
+      setEnrolling(false);
+    }
+  };
+
+  return (
+    <div className="kb-panel">
+
+      <div className="kb-upload-section">
+        <h3>🧑‍💼 Face Match</h3>
+
+        <p className="kb-subtext">
+          Upload a photo to check it against enrolled
+          offender faces. Face detection and descriptor
+          extraction happen in the browser. Only the
+          numeric face descriptor is sent to the server.
+        </p>
+
+        {!modelsLoaded && (
+          <div className="kb-doc-loading">
+            Loading face recognition models...
+          </div>
+        )}
+
+        {modelsLoaded && (
+          <>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={e => {
+                setMatchImage(
+                  e.target.files?.[0] || null
+                );
+                setMatchResults(null);
+                setMatchError(null);
+              }}
+            />
+
+            <button
+              className="kb-upload-btn"
+              onClick={handleMatch}
+              disabled={!matchImage || matching}
+              style={{ marginTop: 12 }}
+            >
+              {matching
+                ? 'Analyzing...'
+                : '🔍 Find Matches'}
+            </button>
+
+            {matchError && (
+              <div className="kb-upload-error">
+                {matchError}
+              </div>
+            )}
+
+            {matchResults && (
+              <div className="kb-doc-list">
+
+                <div className="kb-doc-list-header">
+                  <span>Results</span>
+
+                  <span className="kb-doc-count">
+                    {matchResults.length} found
+                  </span>
+                </div>
+
+                {matchResults.length === 0 && (
+                  <div className="kb-doc-empty">
+                    No enrolled faces matched this photo.
+                  </div>
+                )}
+
+                {matchResults.map((m, i) => (
+                  <div
+                    className="kb-doc-item"
+                    key={i}
+                  >
+                    <div className="kb-doc-info">
+
+                      <div className="kb-doc-name">
+                        {m.offenderName || m.aadhaar}
+                      </div>
+
+                      <div className="kb-doc-meta">
+                        Confidence: {m.confidence}% ·{' '}
+                        {m.linkedCaseCount} linked case(s)
+                        {' · '}
+                        distance{' '}
+                        {typeof m.distance === 'number'
+                          ? m.distance.toFixed(3)
+                          : 'N/A'}
+                      </div>
+
+                    </div>
+                  </div>
+                ))}
+
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      <div className="kb-query-section">
+
+        <h3>➕ Enroll Offender Face</h3>
+
+        <p className="kb-subtext">
+          Link a photo to an offender's Aadhaar/ID
+          reference so future face matches can identify
+          the enrolled record.
+        </p>
+
+        <input
+          className="kb-query-input"
+          style={{ marginBottom: 10 }}
+          placeholder="Aadhaar / ID Ref"
+          value={enrollAadhaar}
+          onChange={e =>
+            setEnrollAadhaar(e.target.value)
+          }
+        />
+
+        <input
+          className="kb-query-input"
+          style={{ marginBottom: 10 }}
+          placeholder="Full name (optional)"
+          value={enrollName}
+          onChange={e =>
+            setEnrollName(e.target.value)
+          }
+        />
+
+        <input
+          type="file"
+          accept="image/*"
+          onChange={e =>
+            setEnrollImage(
+              e.target.files?.[0] || null
+            )
+          }
+        />
+
+        <button
+          className="kb-query-submit"
+          onClick={handleEnroll}
+          disabled={
+            !enrollImage ||
+            !enrollAadhaar.trim() ||
+            enrolling ||
+            !modelsLoaded
+          }
+          style={{ marginTop: 12 }}
+        >
+          {enrolling
+            ? 'Enrolling...'
+            : 'Enroll Face'}
+        </button>
+
+        {enrollResult && (
+          <div className="kb-answer-card">
+            <div className="kb-answer-text">
+              {enrollResult}
+            </div>
+          </div>
+        )}
+
+      </div>
+
     </div>
   );
 }
