@@ -30,6 +30,86 @@ An AI-assisted crime intelligence dashboard built for the Karnataka State Police
 
 
 
+\## Demo Login
+
+
+
+The dashboard uses role-based authentication and is accessible only to authorised users — there is no public sign-up. Judges/evaluators should log in using the demo credentials below.
+
+
+
+\- \*\*Username:\*\* `Admin`
+
+\- \*\*Password:\*\* `Admin123`
+
+
+
+
+
+\## Setup and Execution
+
+
+
+Steps for judges/evaluators to run this project locally:
+
+
+
+1\. Clone the GitHub repository
+
+2\. `cd` into the project directory
+
+3\. Install dependencies:
+
+&#x20;  ```bash
+
+&#x20;  npm install
+
+&#x20;  ```
+
+4\. Start the local development server:
+
+&#x20;  ```bash
+
+&#x20;  npm run dev
+
+&#x20;  ```
+
+5\. Vite will print a local URL in the terminal, normally `http://localhost:5173` — open this in a browser.
+
+6\. To create a production build:
+
+&#x20;  ```bash
+
+&#x20;  npm run build
+
+&#x20;  ```
+
+7\. To deploy to Zoho Catalyst (requires the Catalyst CLI to be configured):
+
+&#x20;  ```bash
+
+&#x20;  catalyst deploy
+
+&#x20;  ```
+
+8\. Alternatively, the already-deployed Catalyst URL can be used to access the live application directly, without running anything locally.
+
+
+
+\### Important
+
+
+
+\- Internet access is required to use connected services.
+
+\- The AI Assistant, crime data, CCTV recommendations, Knowledge Base, and other intelligence features all depend on the configured Zoho Catalyst backend being reachable.
+
+\- Judges should log in using the demo credentials provided above.
+
+\- Never expose API keys, backend credentials, or other sensitive configuration values in this repository or elsewhere.
+
+
+
 \## Tech Stack
 
 
