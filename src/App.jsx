@@ -1274,6 +1274,29 @@ if (!currentUser) {
                         <MapFlyTo target={selectedHotspot} />
             <SelectedHotspotBoundary hotspot={selectedHotspot} />
           </MapContainer>
+          <button
+            onClick={() => {
+              setSelectedDistrict('');
+              setSelectedStatus('');
+              setSelectedCrimeType('');
+              setSelectedHotspot(null);
+            }}
+            title="Clear all filters"
+            style={{
+              position: 'absolute',
+              top: 60,
+              left: 16,
+              zIndex: 1000,
+              padding: '8px 12px',
+              background: '#111827',
+              border: '1px solid #D9A441',
+              color: '#D9A441',
+              borderRadius: 6,
+              cursor: 'pointer',
+              fontSize: 12,
+              fontWeight: 600
+            }}
+          >↺ Clear</button>
     <MapLegend showRecommendations={showRecommendations} showActiveCameras={showActiveCameras} t={t} />
       {selectedHotspot && (
         <div style={{ position: 'absolute', top: 16, right: 16, width: 300, background: '#111827', border: '1px solid rgba(217,164,65,0.3)', borderRadius: 10, padding: 16, zIndex: 1000, boxShadow: '0 12px 32px rgba(0,0,0,0.5)' }}>
@@ -3661,6 +3684,16 @@ const fetchCourtHistory = () => {
                       onClick={() => fgRef.current && fgRef.current.zoomToFit(500, 70)}
                       style={{ width: 30, height: 30, background: '#111827', border: '1px solid #33415C', color: '#E8ECF3', borderRadius: 5, cursor: 'pointer', fontSize: 13 }}
                                         >/</button>
+                    <button
+                      onClick={() => {
+                        setSelectedDistrict('');
+                        setSelectedStatus('');
+                        setSelectedCrimeType('');
+                        if (fgRef.current) fgRef.current.zoomToFit(500, 70);
+                      }}
+                      title="Clear all filters"
+                      style={{ width: 30, height: 30, background: '#111827', border: '1px solid #D9A441', color: '#D9A441', borderRadius: 5, cursor: 'pointer', fontSize: 11 }}
+                    >↺</button>
                   </div>
 
                   {quickInfoOffender && !selectedOffender && (
