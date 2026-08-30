@@ -1153,7 +1153,7 @@ if (!currentUser) {
             ))}
           </select>
 
-                              <label className="filter-label">{t.filterDateRange}</label>
+                                                          <label className="filter-label">{t.filterStatus}</label>
           <select value={selectedStatus} onChange={e => setSelectedStatus(e.target.value)}>
             <option value="">{t.filterAllStatuses}</option>
             <option value="Under Investigation">Under Investigation</option>
