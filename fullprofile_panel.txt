@@ -1,0 +1,130 @@
+﻿3573:         {selectedOffender && (
+3574:   <div className="court-modal-overlay" onClick={clearSelection}>
+3575:     <div className="court-modal offender-modal" onClick={e => e.stopPropagation()}>
+3576:       <div className="court-modal-header">
+3577:         <h4>ðŸ‘¤ Offender Profile</h4>
+3578:         <button className="court-modal-close" onClick={clearSelection}>&times;</button>
+3579:       </div>
+3580:       <div className="court-modal-body">
+3581:         <div className="offender-modal-hero">
+3582:           <div>
+3583:             <div className="offender-modal-name">{selectedOffender.label}</div>
+3584:             <div className="offender-modal-id">ID: {selectedOffender.aadhaar}</div>
+3585:           </div>
+3586:           <div className="risk-badge" style={{ background: `${getRiskColor(selectedOffender.riskScore || 0)}22`, color: getRiskColor(selectedOffender.riskScore || 0) }}>
+3587:             <div className="risk-badge-score">{selectedOffender.riskScore}</div>
+3588:             <div className="risk-badge-label">Risk /100</div>
+3589:           </div>
+3590:         </div>
+3591: 
+3592:         <DetailRow label="Total Linked Cases" value={selectedOffender.caseCount} />
+3593:         <DetailRow
+3594:           label="Known Associates"
+3595:           value={
+3596:             connectedAssociates.length > 0
+3597:               ? connectedAssociates.length
+3598:               : selectedOffender.associateCount
+3599:           }
+3600:         />
+3601:         <DetailRow label="Districts" value={(selectedOffender.districts || []).join(', ') || 'Unknown'} />
+3602:         <DetailRow label="First Case" value={selectedOffender.firstCaseDate || 'Unknown'} />
+3603:         <DetailRow label="Last Case" value={selectedOffender.lastCaseDate || 'Unknown'} />
+3604: 
+3605:         <div className="offender-section-title">Crime Type Breakdown</div>
+3606:         {(selectedOffender.crimeTypeBreakdown || []).map(t => (
+3607:           <div key={t.crimeType} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#C7CEDA', padding: '3px 0' }}>
+3608:             <span>{t.crimeType}</span><span>{t.count}</span>
+3609:           </div>
+3610:         ))}
+3611: 
+3612:         <div className="offender-section-title">Connected To ({connectedAssociates.length})</div>
+3613:         {connectedAssociates.length === 0 && <div className="court-empty-note">No known associates in the current graph view.</div>}
+3614:                 {connectedAssociates.map(a => (
+3615:   <div
+3616:     key={a.id}
+3617:     className="associate-card"
+3618:     onClick={() => {
+3619:       const associateNode = {
+3620:         id: a.id,
+3621:         type: 'offender',
+3622:         label: a.name || 'Unknown',
+3623:         aadhaar: a.aadhaar || null,
+3624:         riskScore: a.riskScore ?? 0,
+3625:         caseCount: a.caseCount ?? 0,
+3626:         districts: a.districts || [],
+3627:         firstCaseDate: a.firstCaseDate || null,
+3628:         lastCaseDate: a.lastCaseDate || null,
+3629:         crimeTypeBreakdown: a.crimeTypeBreakdown || [],
+3630:         centroidLat: a.centroidLat ?? null,
+3631:         centroidLon: a.centroidLon ?? null,
+3632:         associateCount: a.associateCount ?? 0
+3633:       };
+3634: 
+3635:       setRelatedCasesFilter(null);
+3636:       setQuickInfoOffender(null);
+3637:       setAiSummary(null);
+3638:       setCourtHistory(null);
+3639:       setCourtHistoryLoading(false);
+3640:       setCompleteAssociates(null);
+3641:       setSelectedOffender(associateNode);
+3642:       // Load the complete profile + associates of the newly selected person.
+3643:       // The associates endpoint gives relationship data, but not the full
+3644:       // profile fields such as districts, dates and crime breakdown.
+3645:       if (associateNode.aadhaar) {
+3646:         fetch(
+3647:           `${functionsBase}/network-graph-function/?offenderId=${encodeURIComponent(associateNode.aadhaar)}&mode=associates`
+3648:         )
+3649:           .then(res => {
+3650:             if (!res.ok) {
+3651:               throw new Error(`Associates request failed: ${res.status}`);
+3652:             }
+3653:             return res.json();
+3654:           })
+3655:           .then(data => {
+3656:             setCompleteAssociates(data);
+3657: 
+3658:             // The associates response contains the person's complete
+3659:             // relationship count, but the selected node itself may still
+3660:             // have incomplete profile fields. Find the full node from the
+3661:             // currently loaded graph when available and merge it.
+3662:             const fullNode =
+3663:               (graphData.nodes || []).find(
+3664:                 n =>
+3665:                   n.type === 'offender' &&
+3666:                   (
+3667:                     n.aadhaar === associateNode.aadhaar ||
+3668:                     n.id === associateNode.id
+3669:                   )
+3670:               );
+3671: 
+3672:             if (fullNode) {
+3673:               setSelectedOffender({
+3674:                 ...associateNode,
+3675:                 ...fullNode,
+3676:                 associateCount:
+3677:                   fullNode.associateCount ??
+3678:                   data.associateCount ??
+3679:                   associateNode.associateCount ??
+3680:                   0
+3681:               });
+3682:             } else {
+3683:               setSelectedOffender({
+3684:                 ...associateNode,
+3685:                 associateCount:
+3686:                   data.associateCount ??
+3687:                   associateNode.associateCount ??
+3688:                   0
+3689:               });
+3690:             }
+3691:           })
+3692:           .catch(err => {
+3693:             console.error('Associate profile fetch error:', err);
+3694:             setCompleteAssociates(null);
+3695:           });
+3696:       }
+3697:     }}
+3698:     style={{
+3699:       cursor: 'pointer'
+3700:     }}
+3701:     title={`Open ${a.name || 'associate'} profile`}
+3702:   >

@@ -1,0 +1,29 @@
+﻿
+  src\App.jsx:820:};
+  src\App.jsx:821:
+> src\App.jsx:822:  const handleAskAI = () => {
+  src\App.jsx:823:    const question = aiQuestion.trim();
+  src\App.jsx:824:    if (!question) return;
+  src\App.jsx:825:
+  src\App.jsx:826:    setCurrentQuestion(question);
+  src\App.jsx:827:    setCurrentAnswer(null);
+  src\App.jsx:828:    setAiQuestion('');
+  src\App.jsx:829:    setAiLoading(true);
+  src\App.jsx:830:    setLoadingStageIndex(0);
+  src\App.jsx:831:
+  src\App.jsx:832:    let stageIndex = 0;
+  src\App.jsx:836:    }, 4000);
+  src\App.jsx:837:
+> src\App.jsx:838:    fetch(`${FUNCTIONS_BASE}/ask-ai-function/`, {
+  src\App.jsx:839:      method: 'POST',
+  src\App.jsx:840:      headers: { 'Content-Type': 'application/json' },
+  src\App.jsx:841:      body: JSON.stringify({ question })
+  src\App.jsx:842:    })
+  src\App.jsx:843:      .then(res => res.json())
+  src\App.jsx:844:      .then(data => {
+  src\App.jsx:845:        clearInterval(stageInterval);
+  src\App.jsx:846:        setCurrentAnswer(data);
+  src\App.jsx:847:        setChatHistory(prev => [...prev, { question, answer: data }]);
+  src\App.jsx:848:        setAiLoading(false);
+
+

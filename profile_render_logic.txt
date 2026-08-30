@@ -1,0 +1,180 @@
+﻿3096:       highRiskCount,
+3097:       crossDistrictCount,
+3098:       avgAssociates,
+3099:       repeatOffenderPct,
+3100:       mostConnected
+3101:     };
+3102:   }, [rawData, offenderNodes, caseNodesAll, offenderEdgesAll, caseEdgesAll]);
+3103: 
+3104:   const handleNodeClick = (node) => {
+3105:     if (node.type !== 'offender') return;
+3106: 
+3107:     setQuickInfoOffender(node);
+3108:     setAiSummary(null);
+3109:     setCourtHistory(null);
+3110:     setCourtHistoryLoading(false);
+3111:     setCompleteAssociates(null);
+3112: 
+3113:     const connectedLinks = graphData.links.filter(l => {
+3114:       const sourceId = typeof l.source === 'object' ? l.source.id : l.source;
+3115:       const targetId = typeof l.target === 'object' ? l.target.id : l.target;
+3116:       return sourceId === node.id || targetId === node.id;
+3117:     });
+3118: 
+3119:     const connectedIds = new Set([node.id]);
+3120:     connectedLinks.forEach(l => {
+3121:       const sourceId = typeof l.source === 'object' ? l.source.id : l.source;
+3122:       const targetId = typeof l.target === 'object' ? l.target.id : l.target;
+3123:       connectedIds.add(sourceId);
+3124:       connectedIds.add(targetId);
+3125:     });
+3126: 
+3127:     setHighlightNodeIds(connectedIds);
+3128:     setHighlightLinkSet(new Set(connectedLinks));
+3129: 
+3130: 
+3131:   };
+3132:  const openFullProfile = (node, associatesData = null) => {
+3133:     console.log('DEBUG openFullProfile called with:', node);
+3134:     setSelectedOffender(node);
+3135:     setQuickInfoOffender(null);
+3136: 
+3137:     if (
+3138:       associatesData &&
+3139:       Array.isArray(associatesData.associates)
+3140:     ) {
+3141:       setCompleteAssociates(associatesData);
+3142:     }
+3143: };
+3144: 
+3145:   // Fetch the complete associate list whenever the offender profile changes.
+3146:   useEffect(() => {
+3147:     if (!selectedOffender?.aadhaar) return;
+3148: 
+3149:     const offenderAadhaar = selectedOffender.aadhaar;
+3150: 
+3151:     fetch(
+3152:       `${functionsBase}/network-graph-function/?offenderId=${encodeURIComponent(offenderAadhaar)}&mode=associates`
+3153:     )
+3154:       .then(res => {
+3155:         if (!res.ok) {
+3156:           throw new Error(`Associates request failed: ${res.status}`);
+3157:         }
+3158:         return res.json();
+3159:       })
+3160:       .then(data => {
+3161:         if (selectedOffender?.aadhaar === offenderAadhaar) {
+3162:           setCompleteAssociates(data);
+3163:         }
+3164:       })
+3165:       .catch(err => {
+3166:         console.error('Profile associates fetch error:', err);
+3167:         // Keep any complete associate data already supplied by the Map view.
+3168:       });
+3169:   }, [selectedOffender, functionsBase]);
+3170: 
+3171:   // Search finds and selects a match (revealing their real connections),
+3172:   // rather than hiding every other offender -- a single isolated match had
+3173:   // no one left to draw a link to.
+3174:   useEffect(() => {
+3175:     if (!searchTerm.trim()) return;
+3176:     const match = offenderNodes.find(n => n.label.toLowerCase().includes(searchTerm.toLowerCase()));
+3177:     if (match) {
+3178:       const graphNode = graphData.nodes.find(n => n.id === match.id);
+3179:       if (graphNode) handleNodeClick(graphNode);
+3180:     }
+3181:   }, [searchTerm]);
+3182: 
+3183:   const clearSelection = () => {
+3184:   setSelectedOffender(null);
+3185:   setQuickInfoOffender(null);
+3186:   setAiSummary(null);
+3187:     setCourtHistory(null);
+3188:     setCourtHistoryLoading(false);
+3189:     setHighlightNodeIds(null);
+3190:     setHighlightLinkSet(null);
+3191:   };
+3192: const fetchCourtHistory = () => {
+3193:   if (!selectedOffender) return;
+3194:   setCourtHistoryLoading(true);
+3195:   fetch(`${functionsBase}/case-court-history-function/?aadhaar=${encodeURIComponent(selectedOffender.aadhaar)}`)
+3196:     .then(res => res.json())
+3197:     .then(data => { setCourtHistory(data); setCourtHistoryLoading(false); })
+3198:     .catch(err => { console.error('Court history fetch error:', err); setCourtHistoryLoading(false); });
+3199: };
+3200: 
+3201:   const generateSummary = () => {
+3202:     if (!selectedOffender) return;
+3203:     setAiSummaryLoading(true);
+3204:     fetch(`${functionsBase}/network-graph-function/?offenderId=${encodeURIComponent(selectedOffender.aadhaar)}&mode=summary`)
+3205:       .then(res => res.json())
+3206:       .then(d => {
+3207:         setAiSummary(d.summary || 'No summary available.');
+3208:         setAiSummaryLoading(false);
+3209:       })
+3210:       .catch(err => {
+3211:         console.error('AI summary error:', err);
+3212:         setAiSummary('Unable to generate summary right now.');
+3213:         setAiSummaryLoading(false);
+3214:       });
+3215:   };
+3216: 
+3217:   if (loading) {
+3218:     return <div className="network-panel-loading mono">Loading criminal network data...</div>;
+3219:   }
+3220: 
+3221:   if (!rawData || offenderNodes.length === 0) {
+3222:     return (
+3223:       <div className="network-panel-empty">
+3224:         <p>No repeat offenders detected in current data.</p>
+3225:         <p className="text-muted">This view highlights individuals linked to 2 or more cases.</p>
+3226:       </div>
+3227:     );
+3228:   }
+3229: 
+3230:   const isDimmed = (id) => highlightNodeIds !== null && !highlightNodeIds.has(id);
+3231: 
+3232:     
+3233: 
+3234:   const nodeColor = (n) => {
+3235:     const baseColor = n.type === 'offender' ? getRiskColor(n.riskScore || 0) : CASE_NODE_COLOR;
+3236:     return isDimmed(n.id) ? FADE_COLOR : baseColor;
+3237:   };
+3238: 
+3239:   const linkColor = (l) => {
+3240:     const baseColor = l.strength === 'strong'
+3241:       ? 'rgba(224, 138, 62, 0.9)'
+3242:       : l.strength === 'medium'
+3243:         ? 'rgba(74, 127, 181, 0.65)'
+3244:         : 'rgba(139, 150, 170, 0.35)';
+3245:     if (highlightLinkSet !== null && !highlightLinkSet.has(l)) return FADE_LINK_COLOR;
+3246:     return baseColor;
+3247:   };
+3248:   const linkWidth = (l) => (l.strength === 'strong' ? 2.5 : l.strength === 'medium' ? 1.5 : 1);
+3249:   const linkDash = (l) => (l.strength === 'weak' ? [4, 2] : null);
+3250: 
+3251:   return (
+3252:     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, height: 'calc(100vh - 180px)', minHeight: 500 }}>
+3253:       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, flexShrink: 0 }}>
+3254:         <StatCard label="Total Offenders" value={stats.totalOffenders} />
+3255:         <StatCard label="Total Cases Linked" value={stats.totalCasesLinked} />
+3256:         <StatCard label="Network Nodes" value={stats.networkNodes} />
+3257:         <StatCard label="Total Connections" value={stats.networkEdges} />
+3258:         <StatCard label="Average Risk Score" value={`${stats.avgRisk}/100`} />
+3259:         <StatCard label="Repeat Offenders" value={stats.repeatOffenderCount} />
+3260:         <StatCard label="High-Risk Offenders (80+)" value={stats.highRiskCount} />
+3261:                 <StatCard label="Cross-District Networks" value={stats.crossDistrictCount} />
+3262:       </div>
+3263: 
+3264:               <div style={{ display: 'flex', gap: 8, flexShrink: 0, alignItems: 'center' }}>
+3265:           <button
+3266:             onClick={() => setNetworkView('graph')}
+3267:             style={{
+3268:               padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+3269:               background: networkView === 'graph' ? 'var(--accent)' : '#111827',
+3270:               color: networkView === 'graph' ? '#fff' : '#8B96AA',
+3271:               border: '1px solid #232D42'
+3272:             }}
+3273:           >
+3274:             ðŸ•¸ Network View
+3275:           </button>

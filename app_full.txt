@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+﻿import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { MapContainer, TileLayer, CircleMarker, Popup, Polyline } from 'react-leaflet';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import ForceGraph2D from 'react-force-graph-2d';
@@ -3106,11 +3106,10 @@ const connectedAssociates = useMemo(() => {
     return positions;
   }
 
- const networkViewGraphData = useMemo(() => {
+  const networkViewGraphData = useMemo(() => {
     const offendersInScope = graphData.nodes.filter(n => n.type === 'offender');
     const nodeById = new Map(graphData.nodes.map(n => [n.id, n]));
     const positionById = new Map();
-    let extraNodeById = new Map();   // <-- NEW: holds full associate objects not in the trimmed set
     let centerNode = null;
     let shownOffenderIds;
     let linksToDraw;
@@ -3122,6 +3121,8 @@ const connectedAssociates = useMemo(() => {
       const byStrength = { strong: [], medium: [], weak: [] };
       const edgesFromCenter = [];
 
+      // For a selected offender, use the complete backend associate list.
+      // The normal graph remains trimmed for general browsing.
       if (
         completeAssociates &&
         completeAssociates.aadhaar === selectedOffender.aadhaar &&
@@ -3139,7 +3140,6 @@ const connectedAssociates = useMemo(() => {
             centroidLon: a.centroidLon ?? null
           };
 
-          extraNodeById.set(a.id, associateNode);   // <-- NEW: remember it regardless of trimmed set
           (byStrength[a.strength] || byStrength.weak).push(associateNode);
 
           edgesFromCenter.push({
@@ -3153,6 +3153,7 @@ const connectedAssociates = useMemo(() => {
           });
         });
       } else {
+        // Keep existing behaviour while the complete list is loading.
         graphData.links.forEach(l => {
           if (l.type !== 'offender-link') return;
           const s = typeof l.source === 'object' ? l.source.id : l.source;
@@ -3204,10 +3205,8 @@ const connectedAssociates = useMemo(() => {
       });
     }
 
-    // CHANGED: fall back to centerNode / extraNodeById before nodeById, so
-    // associates outside the trimmed 300-node set are never silently dropped.
     const shownOffenderNodes = [...shownOffenderIds]
-      .map(id => (id === centerNode.id ? centerNode : extraNodeById.get(id)) || nodeById.get(id))
+      .map(id => nodeById.get(id))
       .filter(Boolean)
       .map(n => ({ ...n, fx: positionById.get(n.id)?.x ?? 0, fy: positionById.get(n.id)?.y ?? 0, x: positionById.get(n.id)?.x ?? 0, y: positionById.get(n.id)?.y ?? 0 }));
 
@@ -3230,28 +3229,20 @@ const connectedAssociates = useMemo(() => {
         caseOffsetCounter.set(offenderId, n + 1);
         const angle = n * 0.9;
         caseNodesToShow.push({
-          ...caseNode,
-          fx: parentPos.x + Math.cos(angle) * 22,
-          fy: parentPos.y + Math.sin(angle) * 22,
-          x: parentPos.x + Math.cos(angle) * 22,
-          y: parentPos.y + Math.sin(angle) * 22
-        });
+  ...caseNode,
+  fx: parentPos.x + Math.cos(angle) * 22,
+  fy: parentPos.y + Math.sin(angle) * 22,
+  x: parentPos.x + Math.cos(angle) * 22,
+  y: parentPos.y + Math.sin(angle) * 22
+});
       });
       allNodes = [...allNodes, ...caseNodesToShow];
       allLinks = [...allLinks, ...caseEdges.map(l => ({ ...l }))];
     }
 
-    // NEW: defense in depth -- ForceGraph2D must never see a link whose
-    // endpoint isn't in the node list, no matter what upstream logic changes.
-    const finalNodeIdSet = new Set(allNodes.map(n => n.id));
-    allLinks = allLinks.filter(l => {
-      const s = typeof l.source === 'object' ? l.source.id : l.source;
-      const t = typeof l.target === 'object' ? l.target.id : l.target;
-      return finalNodeIdSet.has(s) && finalNodeIdSet.has(t);
-    });
-
     return { nodes: allNodes, links: allLinks, centerId: centerNode?.id || null };
-   }, [graphData, selectedOffender, completeAssociates, graphDisplayLimit, showCaseNetwork]);
+   }, [graphData, selectedOffender, graphDisplayLimit, showCaseNetwork]);
+
   useEffect(() => {
     if (fgRef.current) fgRef.current.d3ReheatSimulation();
   }, [networkViewGraphData]);
@@ -3339,65 +3330,45 @@ const connectedAssociates = useMemo(() => {
 
 
   };
- const [profileLoading, setProfileLoading] = useState(false);
-const [profileHistory, setProfileHistory] = useState([]);       // array of aadhaar strings
-const [profileHistoryIndex, setProfileHistoryIndex] = useState(-1);
-
-// Canonical loader -- the ONLY path that opens a full offender profile,
-// from Map, Network, associate cards, or Previous/Next.
-const loadOffenderProfile = useCallback((aadhaar, { pushHistory = true } = {}) => {
-    if (!aadhaar) return;
-
+ const openFullProfile = (node, associatesData = null) => {
+    console.log('DEBUG openFullProfile called with:', node);
+    setSelectedOffender(node);
     setQuickInfoOffender(null);
-    setAiSummary(null);
-    setCourtHistory(null);
-    setCourtHistoryLoading(false);
-    setCompleteAssociates(null);
-    setProfileLoading(true);
 
-    fetch(`${functionsBase}/network-graph-function/?offenderId=${encodeURIComponent(aadhaar)}&mode=profile`)
-        .then(res => {
-            if (!res.ok) throw new Error(`Profile fetch failed: ${res.status}`);
-            return res.json();
-        })
-        .then(profile => {
-            setSelectedOffender(profile);
-            setProfileLoading(false);
-            if (pushHistory) {
-                setProfileHistory(h => [...h.slice(0, profileHistoryIndex + 1), aadhaar]);
-                setProfileHistoryIndex(i => i + 1);
-            }
-        })
-        .catch(err => {
-            console.error('Profile fetch error:', err);
-            setProfileLoading(false);
-        });
-
-    fetch(`${functionsBase}/network-graph-function/?offenderId=${encodeURIComponent(aadhaar)}&mode=associates`)
-        .then(res => {
-            if (!res.ok) throw new Error(`Associates request failed: ${res.status}`);
-            return res.json();
-        })
-        .then(data => setCompleteAssociates(data))
-        .catch(err => console.error('Associates fetch error:', err));
-}, [functionsBase, profileHistoryIndex]);
-
-const goToPreviousProfile = () => { console.log("PREV CLICKED", profileHistoryIndex, profileHistory);
-    if (profileHistoryIndex <= 0) return;
-    const prevIndex = profileHistoryIndex - 1;
-    setProfileHistoryIndex(prevIndex);
-    loadOffenderProfile(profileHistory[prevIndex], { pushHistory: false });
+    if (
+      associatesData &&
+      Array.isArray(associatesData.associates)
+    ) {
+      setCompleteAssociates(associatesData);
+    }
 };
 
-const goToNextProfile = () => { console.log("NEXT CLICKED", profileHistoryIndex, profileHistory);
-    if (profileHistoryIndex >= profileHistory.length - 1) return;
-    const nextIndex = profileHistoryIndex + 1;
-    setProfileHistoryIndex(nextIndex);
-    loadOffenderProfile(profileHistory[nextIndex], { pushHistory: false });
-};
+  // Fetch the complete associate list whenever the offender profile changes.
+  useEffect(() => {
+    if (!selectedOffender?.aadhaar) return;
 
+    const offenderAadhaar = selectedOffender.aadhaar;
 
-  
+    fetch(
+      `${functionsBase}/network-graph-function/?offenderId=${encodeURIComponent(offenderAadhaar)}&mode=associates`
+    )
+      .then(res => {
+        if (!res.ok) {
+          throw new Error(`Associates request failed: ${res.status}`);
+        }
+        return res.json();
+      })
+      .then(data => {
+        if (selectedOffender?.aadhaar === offenderAadhaar) {
+          setCompleteAssociates(data);
+        }
+      })
+      .catch(err => {
+        console.error('Profile associates fetch error:', err);
+        // Keep any complete associate data already supplied by the Map view.
+      });
+  }, [selectedOffender, functionsBase]);
+
   // Search finds and selects a match (revealing their real connections),
   // rather than hiding every other offender -- a single isolated match had
   // no one left to draw a link to.
@@ -3414,24 +3385,11 @@ const goToNextProfile = () => { console.log("NEXT CLICKED", profileHistoryIndex,
   setSelectedOffender(null);
   setQuickInfoOffender(null);
   setAiSummary(null);
-  setCourtHistory(null);
-  setCourtHistoryLoading(false);
-  setHighlightNodeIds(null);
-  setHighlightLinkSet(null);
-  setCompleteAssociates(null);   // <-- was missing; stops stale-data leakage
-};
-// Closing the offender profile modal should only clear the profile itself --
-// not the map/graph's own highlight state, which belongs to whichever view
-// is underneath and should still be visible once the modal is gone.
-const closeOffenderProfile = () => {
-  setSelectedOffender(null);
-  setQuickInfoOffender(null);
-  setAiSummary(null);
-  setCourtHistory(null);
-  setCourtHistoryLoading(false);
-  setCompleteAssociates(null);
-};
-
+    setCourtHistory(null);
+    setCourtHistoryLoading(false);
+    setHighlightNodeIds(null);
+    setHighlightLinkSet(null);
+  };
 const fetchCourtHistory = () => {
   if (!selectedOffender) return;
   setCourtHistoryLoading(true);
@@ -3690,7 +3648,7 @@ const fetchCourtHistory = () => {
                         </div>
                       </div>
                       <button
-                        onClick={() => loadOffenderProfile(quickInfoOffender.aadhaar)}
+                        onClick={() => openFullProfile(quickInfoOffender)}
                         style={{ marginTop: 10, width: '100%', padding: '6px 0', borderRadius: 6, fontSize: 11.5, fontWeight: 600, background: 'var(--accent)', color: '#fff', border: 'none', cursor: 'pointer' }}
                       >
                         View History
@@ -3799,7 +3757,7 @@ warmupTicks={20}
                                ) : (
                                                                       <OffenderMapView
                       graphData={graphData}
-                                            onViewHistory={(node) => loadOffenderProfile(node.aadhaar)}
+                                            onViewHistory={openFullProfile}
                       externalSelectedNode={quickInfoOffender}
                       completeAssociates={completeAssociates}
                     />
@@ -3814,38 +3772,12 @@ warmupTicks={20}
         </div>
 
         {selectedOffender && (
-    <div className="court-modal-overlay" onClick={closeOffenderProfile}>
+  <div className="court-modal-overlay" onClick={clearSelection}>
     <div className="court-modal offender-modal" onClick={e => e.stopPropagation()}>
-     <div className="court-modal-header">
-  <h4>👤 Offender Profile</h4>
-  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-    <button
-      onClick={goToPreviousProfile}
-      disabled={profileHistoryIndex <= 0}
-      style={{
-        padding: '4px 10px', borderRadius: 5, fontSize: 11, fontWeight: 600,
-        background: '#111827', color: profileHistoryIndex <= 0 ? '#4B5568' : '#E8ECF3',
-        border: '1px solid #232D42',
-        cursor: profileHistoryIndex <= 0 ? 'not-allowed' : 'pointer'
-      }}
-    >
-      ‹ Previous
-    </button>
-    <button
-      onClick={goToNextProfile}
-      disabled={profileHistoryIndex >= profileHistory.length - 1}
-      style={{
-        padding: '4px 10px', borderRadius: 5, fontSize: 11, fontWeight: 600,
-        background: '#111827', color: profileHistoryIndex >= profileHistory.length - 1 ? '#4B5568' : '#E8ECF3',
-        border: '1px solid #232D42',
-        cursor: profileHistoryIndex >= profileHistory.length - 1 ? 'not-allowed' : 'pointer'
-      }}
-    >
-      Next ›
-    </button>
-       <button className="court-modal-close" onClick={closeOffenderProfile}>&times;</button>
-  </div>
-</div> 
+      <div className="court-modal-header">
+        <h4>👤 Offender Profile</h4>
+        <button className="court-modal-close" onClick={clearSelection}>&times;</button>
+      </div>
       <div className="court-modal-body">
         <div className="offender-modal-hero">
           <div>
@@ -3885,8 +3817,84 @@ warmupTicks={20}
     key={a.id}
     className="associate-card"
     onClick={() => {
+      const associateNode = {
+        id: a.id,
+        type: 'offender',
+        label: a.name || 'Unknown',
+        aadhaar: a.aadhaar || null,
+        riskScore: a.riskScore ?? 0,
+        caseCount: a.caseCount ?? 0,
+        districts: a.districts || [],
+        firstCaseDate: a.firstCaseDate || null,
+        lastCaseDate: a.lastCaseDate || null,
+        crimeTypeBreakdown: a.crimeTypeBreakdown || [],
+        centroidLat: a.centroidLat ?? null,
+        centroidLon: a.centroidLon ?? null,
+        associateCount: a.associateCount ?? 0
+      };
+
       setRelatedCasesFilter(null);
-      loadOffenderProfile(a.aadhaar);
+      setQuickInfoOffender(null);
+      setAiSummary(null);
+      setCourtHistory(null);
+      setCourtHistoryLoading(false);
+      setCompleteAssociates(null);
+      setSelectedOffender(associateNode);
+      // Load the complete profile + associates of the newly selected person.
+      // The associates endpoint gives relationship data, but not the full
+      // profile fields such as districts, dates and crime breakdown.
+      if (associateNode.aadhaar) {
+        fetch(
+          `${functionsBase}/network-graph-function/?offenderId=${encodeURIComponent(associateNode.aadhaar)}&mode=associates`
+        )
+          .then(res => {
+            if (!res.ok) {
+              throw new Error(`Associates request failed: ${res.status}`);
+            }
+            return res.json();
+          })
+          .then(data => {
+            setCompleteAssociates(data);
+
+            // The associates response contains the person's complete
+            // relationship count, but the selected node itself may still
+            // have incomplete profile fields. Find the full node from the
+            // currently loaded graph when available and merge it.
+            const fullNode =
+              (graphData.nodes || []).find(
+                n =>
+                  n.type === 'offender' &&
+                  (
+                    n.aadhaar === associateNode.aadhaar ||
+                    n.id === associateNode.id
+                  )
+              );
+
+            if (fullNode) {
+              setSelectedOffender({
+                ...associateNode,
+                ...fullNode,
+                associateCount:
+                  fullNode.associateCount ??
+                  data.associateCount ??
+                  associateNode.associateCount ??
+                  0
+              });
+            } else {
+              setSelectedOffender({
+                ...associateNode,
+                associateCount:
+                  data.associateCount ??
+                  associateNode.associateCount ??
+                  0
+              });
+            }
+          })
+          .catch(err => {
+            console.error('Associate profile fetch error:', err);
+            setCompleteAssociates(null);
+          });
+      }
     }}
     style={{
       cursor: 'pointer'

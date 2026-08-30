@@ -1,0 +1,113 @@
+﻿
+> src\App.jsx:17:import jsPDF from 'jspdf';
+> src\App.jsx:18:import html2canvas from 'html2canvas';
+  src\App.jsx:19:import LoginPage from './LoginPage';
+  src\App.jsx:20:import { ShieldCheck, BadgeCheck, MapPin, Building2, LogOut, ChevronDown } from 
+'lucide-react';
+  src\App.jsx:21:const ROLE_CONFIG = {
+> src\App.jsx:579:  const [kpis, setKpis] = useState(null);
+> src\App.jsx:580:  const [cases, setCases] = useState([]);
+> src\App.jsx:581:  const [districts, setDistricts] = useState([]);
+  src\App.jsx:582:  const [selectedDistrict, setSelectedDistrict] = useState('');
+  src\App.jsx:583:  const [selectedStatus, setSelectedStatus] = useState('');
+  src\App.jsx:584:  const [selectedCrimeType, setSelectedCrimeType] = useState('');
+> src\App.jsx:589:  const [currentQuestion, setCurrentQuestion] = useState(null);
+> src\App.jsx:590:  const [currentAnswer, setCurrentAnswer] = useState(null);
+> src\App.jsx:591:  const [chatHistory, setChatHistory] = useState([]);
+  src\App.jsx:592:  const [language, setLanguage] = useState('en');
+  src\App.jsx:593:  const pdfExportRef = useRef(null);
+  src\App.jsx:594:
+> src\App.jsx:628:    const [viewingHistoryItem, setViewingHistoryItem] = useState(null);
+  src\App.jsx:629:  const [loadingStageIndex, setLoadingStageIndex] = useState(0);
+  src\App.jsx:630:  const [showAnalytics, setShowAnalytics] = useState(false);
+  src\App.jsx:631:  const responseTopRef = useRef(null);
+> src\App.jsx:646:  const [cctvData, setCctvData] = useState(null);
+  src\App.jsx:647:  const [showCctv, setShowCctv] = useState(true);
+  src\App.jsx:648:  const [showRecommendations, setShowRecommendations] = useState(true);
+  src\App.jsx:649:  const [recommendationLimit, setRecommendationLimit] = useState('20');
+> src\App.jsx:650:  const [activeCameras, setActiveCameras] = useState(null);
+  src\App.jsx:651:  const [showActiveCameras, setShowActiveCameras] = useState(false);
+  src\App.jsx:652:    const [showHotspotZones, setShowHotspotZones] = useState(true);
+> src\App.jsx:653:  const [selectedHotspot, setSelectedHotspot] = useState(null);
+> src\App.jsx:654:  const [courtHistoryModal, setCourtHistoryModal] = useState(null);
+  src\App.jsx:655:useEffect(() => {
+  src\App.jsx:656:  window.viewCourtHistory = (caseId) => {
+  src\App.jsx:657:    setCourtHistoryModal({ loading: true, cases: [] });
+> src\App.jsx:787:const exportChatHistoryPDF = async () => {
+  src\App.jsx:788:  if (chatHistory.length === 0) {
+  src\App.jsx:789:    alert('No conversation history to export yet.');
+  src\App.jsx:790:    return;
+> src\App.jsx:794:  const canvas = await html2canvas(pdfExportRef.current, {
+  src\App.jsx:795:    scale: 2,
+  src\App.jsx:796:    backgroundColor: '#ffffff',
+  src\App.jsx:797:    useCORS: true
+> src\App.jsx:800:  const doc = new jsPDF('p', 'mm', 'a4');
+  src\App.jsx:801:  const pageWidth = doc.internal.pageSize.getWidth();
+  src\App.jsx:802:  const pageHeight = doc.internal.pageSize.getHeight();
+  src\App.jsx:803:  const imgWidth = pageWidth;
+> src\App.jsx:891:    fetch(`${FUNCTIONS_BASE}/cctv-recommend-function/?mode=active`)
+  src\App.jsx:892:      .then(res => res.json())
+  src\App.jsx:893:      .then(setActiveCameras)
+  src\App.jsx:894:      .catch(err => console.error('Active camera fetch error:', err));
+> src\App.jsx:897:    fetch(`${FUNCTIONS_BASE}/cctv-recommend-function/?limit=${recommendationLimit}`)
+  src\App.jsx:898:      .then(res => res.json())
+  src\App.jsx:899:      .then(setCctvData)
+  src\App.jsx:900:      .catch(err => console.error('CCTV data fetch error:', err));
+> src\App.jsx:1397:                <button className="history-export-btn" 
+onClick={exportChatHistoryPDF}>Export PDF</button>
+  src\App.jsx:1398:                <button className="history-close" onClick={() => { 
+setShowHistory(false); setViewingHistoryItem(null); }}>&times;</button>
+  src\App.jsx:1399:              </div>
+  src\App.jsx:1400:              <div className="history-drawer-body">
+> src\App.jsx:1558:  const [data, setData] = useState(null);
+  src\App.jsx:1559:  const [loading, setLoading] = useState(true);
+  src\App.jsx:1560:
+  src\App.jsx:1561:  const fetchRecommendations = () => {
+> src\App.jsx:2010:  const [data, setData] = useState(null);
+  src\App.jsx:2011:  const [loading, setLoading] = useState(true);
+  src\App.jsx:2012:  const [error, setError] = useState('');
+  src\App.jsx:2013:
+> src\App.jsx:2020:        `${functionsBase}/priority-action-function/`
+  src\App.jsx:2021:      );
+  src\App.jsx:2022:
+  src\App.jsx:2023:      if (!response.ok) {
+> src\App.jsx:2175:  const [rawData, setRawData] = useState(null);
+  src\App.jsx:2176:  const [loading, setLoading] = useState(true);
+> src\App.jsx:2177:  const [selectedOffender, setSelectedOffender] = useState(null);
+  src\App.jsx:2178:   const [showCaseNetwork, setShowCaseNetwork] = useState(false);
+  src\App.jsx:2179:   const [networkView, setNetworkView] = useState('graph'); // 'graph' | 'map'
+  src\App.jsx:2180:  const [showAllLinks, setShowAllLinks] = useState(false);
+> src\App.jsx:2186:  const [aiSummary, setAiSummary] = useState(null);
+  src\App.jsx:2187:  const [aiSummaryLoading, setAiSummaryLoading] = useState(false);
+> src\App.jsx:2188:  const [courtHistory, setCourtHistory] = useState(null);
+  src\App.jsx:2189:const [courtHistoryLoading, setCourtHistoryLoading] = useState(false);
+> src\App.jsx:2190:const [relatedCasesFilter, setRelatedCasesFilter] = useState(null); // { 
+associateId, associateName, caseIds } | null
+  src\App.jsx:2191:
+> src\App.jsx:2192:  const [highlightNodeIds, setHighlightNodeIds] = useState(null);
+> src\App.jsx:2193:  const [highlightLinkSet, setHighlightLinkSet] = useState(null);
+  src\App.jsx:2194:const [filterWidth, setFilterWidth] = useState(() => {
+  src\App.jsx:2195:    if (typeof window === 'undefined') return 220;
+  src\App.jsx:2196:    const stored = parseInt(localStorage.getItem('ksp-network-filter-width'), 10);
+> src\App.jsx:2242:    fetch(`${functionsBase}/network-graph-function/`)
+  src\App.jsx:2243:      .then(res => res.json())
+  src\App.jsx:2244:      .then(data => {
+  src\App.jsx:2245:        setRawData(data);
+> src\App.jsx:2469:    fetch(`${functionsBase}/network-graph-function/?offenderId=${encodeURIComponent
+(selectedOffender.aadhaar)}&mode=summary`)
+  src\App.jsx:2470:      .then(res => res.json())
+  src\App.jsx:2471:      .then(d => {
+  src\App.jsx:2472:        setAiSummary(d.summary || 'No summary available.');
+> src\App.jsx:2838:  const [documents, setDocuments] = useState([]);
+  src\App.jsx:2839:  const [loadingDocs, setLoadingDocs] = useState(true);
+  src\App.jsx:2840:  const [uploading, setUploading] = useState(false);
+> src\App.jsx:2841:  const [uploadError, setUploadError] = useState(null);
+  src\App.jsx:2842:  const fileInputRef = useRef(null);
+  src\App.jsx:2843:
+  src\App.jsx:2844:  const [question, setQuestion] = useState('');
+> src\App.jsx:2846:  const [answer, setAnswer] = useState(null);
+  src\App.jsx:2847:  const [kbListening, setKbListening] = useState(false);
+  src\App.jsx:2848:  const kbRecognitionRef = useRef(null);
+  src\App.jsx:2849:const utteranceRef = useRef(null);
+
+

@@ -1,0 +1,180 @@
+﻿2250: function OffenderMapView({ graphData, onViewHistory, externalSelectedNode, completeAssociates }) {  const offenderNodesWithCoords = graphData.nodes.filter(
+2251:     n => n.type === 'offender' && typeof n.centroidLat === 'number' && typeof n.centroidLon === 'number'
+2252:   );
+2253:   const [primaryNode, setPrimaryNode] = useState(null);
+2254:   const [associateNode, setAssociateNode] = useState(null);
+2255:   const [linkMode, setLinkMode] = useState('direct'); // 'direct' | 'cases' | 'all'
+2256: 
+2257:   // Sync with search selection from the parent panel, so searching by name
+2258:   // isolates that offender's connections here too, not just in Graph view.
+2259:   useEffect(() => {
+2260:     if (externalSelectedNode && externalSelectedNode.type === 'offender') {
+2261:       setPrimaryNode(externalSelectedNode);
+2262:       setAssociateNode(null);
+2263:     }
+2264:   }, [externalSelectedNode]);
+2265: 
+2266:   // Real direct associates of the primary offender (offender-link edges only
+2267:   // -- never fabricated). Also keeps the connecting edge so the relationship
+2268:   // card can show real strength/reason.
+2269:   const { associateIds, edgeByAssociateId } = useMemo(() => {
+2270:     if (!primaryNode) {
+2271:       return {
+2272:         associateIds: new Set(),
+2273:         edgeByAssociateId: new Map()
+2274:       };
+2275:     }
+2276: 
+2277:     const ids = new Set();
+2278:     const edgeMap = new Map();
+2279: 
+2280:     // When the complete backend associate list is available, use it as
+2281:     // the authoritative source for the selected offender.
+2282:     if (
+2283:       completeAssociates &&
+2284:       completeAssociates.aadhaar === primaryNode.aadhaar &&
+2285:       Array.isArray(completeAssociates.associates)
+2286:     ) {
+2287:       completeAssociates.associates.forEach(a => {
+2288:         if (!a.id) return;
+2289: 
+2290:         ids.add(a.id);
+2291: 
+2292:         edgeMap.set(a.id, {
+2293:           source: primaryNode.id,
+2294:           target: a.id,
+2295:           type: 'offender-link',
+2296:           strength: a.strength || 'weak',
+2297:           reason: a.reason || 'Known association',
+2298:           sharedCaseCount: a.sharedCaseCount ?? 0,
+2299:           sharedCaseIds: a.sharedCaseIds || []
+2300:         });
+2301:       });
+2302: 
+2303:       return {
+2304:         associateIds: ids,
+2305:         edgeByAssociateId: edgeMap
+2306:       };
+2307:     }
+2308: 
+2309:     // Fallback to the currently loaded graph while the complete request
+2310:     // is still loading.
+2311:     graphData.links.forEach(l => {
+2312:       if (l.type !== 'offender-link') return;
+2313: 
+2314:       const sourceId = typeof l.source === 'object' ? l.source.id : l.source;
+2315:       const targetId = typeof l.target === 'object' ? l.target.id : l.target;
+2316: 
+2317:       if (sourceId === primaryNode.id) {
+2318:         ids.add(targetId);
+2319:         edgeMap.set(targetId, l);
+2320:       } else if (targetId === primaryNode.id) {
+2321:         ids.add(sourceId);
+2322:         edgeMap.set(sourceId, l);
+2323:       }
+2324:     });
+2325: 
+2326:     return {
+2327:       associateIds: ids,
+2328:       edgeByAssociateId: edgeMap
+2329:     };
+2330:   }, [graphData, primaryNode, completeAssociates]);
+2331:   const handlePrimarySelect = (node) => {
+2332:     setPrimaryNode(node);
+2333:     setAssociateNode(null);
+2334:   };
+2335:   const handleAssociateSelect = (node) => setAssociateNode(node);
+2336:   const handleBackgroundClick = () => {
+2337:     setPrimaryNode(null);
+2338:     setAssociateNode(null);
+2339:   };
+2340: 
+2341:   if (offenderNodesWithCoords.length === 0) {
+2342:     return (
+2343:       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#8B96AA', fontSize: 12, textAlign: 'center', padding: 24 }}>
+2344:         None of the offenders currently shown have linked cases with real coordinates, so they can't be placed on the map.
+2345:       </div>
+2346:     );
+2347:   }
+2348: 
+2349:   const totalAssociateCount = primaryNode
+2350:     ? graphData.links.filter(l => {
+2351:         const s = typeof l.source === 'object' ? l.source.id : l.source;
+2352:         const t = typeof l.target === 'object' ? l.target.id : l.target;
+2353:         return l.type === 'offender-link' && (s === primaryNode.id || t === primaryNode.id);
+2354:       }).length
+2355:     : 0;
+2356:   const mappedAssociateCount = primaryNode
+2357:     ? offenderNodesWithCoords.filter(n => associateIds.has(n.id)).length
+2358:     : 0;
+2359:   const associateEdge = associateNode ? edgeByAssociateId.get(associateNode.id) : null;
+2360: 
+2361:   return (
+2362:     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+2363:       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '2px 4px 6px', gap: 8, flexWrap: 'wrap' }}>
+2364:         {primaryNode && totalAssociateCount > 0 ? (
+2365:           <div style={{ fontSize: 11, color: '#8B96AA' }}>
+2366:             Showing {mappedAssociateCount} of {totalAssociateCount} associates on the map
+2367:           </div>
+2368:         ) : <div />}
+2369: 
+2370:         <div style={{ display: 'flex', gap: 4 }}>
+2371:           {[
+2372:             { key: 'direct', label: 'Direct Associates' },
+2373:             { key: 'all', label: 'All Connections' }
+2374:           ].map(opt => (
+2375:             <button
+2376:               key={opt.key}
+2377:               onClick={() => setLinkMode(opt.key)}
+2378:               style={{
+2379:                 padding: '4px 10px', borderRadius: 5, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+2380:                 background: linkMode === opt.key ? 'var(--accent)' : '#111827',
+2381:                 color: linkMode === opt.key ? '#fff' : '#8B96AA',
+2382:                 border: '1px solid #232D42'
+2383:               }}
+2384:             >
+2385:               {opt.label}
+2386:             </button>
+2387:           ))}
+2388:         </div>
+2389:       </div>
+2390: 
+2391:       <div style={{ flex: 1, minHeight: 80, borderRadius: 8, overflow: 'hidden', position: 'relative' }}>
+2392:         <MapContainer
+2393:           center={[15.3173, 75.7139]}
+2394:           zoom={7}
+2395:           minZoom={6}
+2396:           maxBounds={KARNATAKA_BOUNDS}
+2397:           maxBoundsViscosity={1.0}
+2398:           style={{ height: '100%', width: '100%' }}
+2399:         >
+2400:           <TileLayer
+2401:             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+2402:             attribution='&copy; OpenStreetMap contributors'
+2403:           />
+2404:           <OffenderMapLayer
+2405:             graphData={graphData}
+2406:             primaryId={primaryNode?.id || null}
+2407:             associateIds={primaryNode ? associateIds : null}
+2408:             completeAssociates={primaryNode ? completeAssociates : null}
+2409:             linkMode={linkMode}
+2410:             onPrimarySelect={handlePrimarySelect}
+2411:             onAssociateSelect={handleAssociateSelect}
+2412:             onBackgroundClick={handleBackgroundClick}
+2413:           />
+2414:                 </MapContainer>
+2415: 
+2416:         <div style={{ position: 'absolute', top: 10, right: 10, zIndex: 500, display: 'flex', flexDirection: 'column', gap: 10 }}>
+2417:         {primaryNode && (
+2418:           <div style={{
+2419:             width: 240, background: '#111827',
+2420:             border: '1px solid #D9A441', borderRadius: 8, padding: 12,
+2421:             boxShadow: '0 8px 24px rgba(0,0,0,0.5)'
+2422:           }}>
+2423:             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+2424:               <div style={{ fontSize: 13, fontWeight: 700, color: '#F0F3F8' }}>{primaryNode.label}</div>
+2425:               <button onClick={handleBackgroundClick} style={{ background: 'none', border: 'none', color: '#8B96AA', cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: 0 }}>&times;</button>
+2426:             </div>
+2427:             <div style={{ fontSize: 11, color: '#D9A441', fontWeight: 600, marginTop: 2 }}>Risk {primaryNode.riskScore}/100</div>
+2428:             <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11.5 }}>
+2429:               <div style={{ display: 'flex', justifyContent: 'space-between' }}>

@@ -1,0 +1,24 @@
+﻿
+src\App.jsx:355:        const marker = L.marker([u.centroidLat, u.centroidLon], { icon: 
+makeRecommendIcon(u.priority) });
+src\App.jsx:356:        const priorityColor = PRIORITY_ICON_COLORS[u.priority] || '#4A7FB5';
+src\App.jsx:360:            <div 
+style="display:inline-block;background:${priorityColor};color:white;border-radius:4px;padding:2px 
+8px;font-size:11px;font-weight:bold;margin:4px 0;">${u.priority} Priority</div>
+src\App.jsx:853:        if (action.type === 'filterDistrict' && action.district) {
+src\App.jsx:854:          const match = districts.find(d => d.districtName.toLowerCase() === 
+action.district.toLowerCase());
+src\App.jsx:862:          if (action.district) {
+src\App.jsx:863:            const match = districts.find(d => d.districtName.toLowerCase() === 
+action.district.toLowerCase());
+src\App.jsx:1618:                    <div className="patrol-card-district mono">{r.district}</div>
+src\App.jsx:1621:                    <span className="patrol-priority-badge" style={{ background: 
+priorityColor(r.priority) }}>
+src\App.jsx:1622:                      {r.priority} Priority
+src\App.jsx:2137:                  const priorityKey = (item.priority || 'medium').toLowerCase();
+src\App.jsx:2146:                          {item.priority}
+src\App.jsx:2152:                      <td className="col-district">{item.district || '\u2014'}</td>
+src\App.jsx:2763:            <div style={{ color: '#8B96AA' }}>{c.crimeType} · {c.status}{c.district 
+? ` · ${c.district}` : ''}</div>
+
+

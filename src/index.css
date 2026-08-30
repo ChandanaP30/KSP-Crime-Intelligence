@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+﻿@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
 :root {
   /* Primary Colors - Dark Navy Base */
@@ -15,10 +15,10 @@
   --text-muted: #7A8399;
   
   /* Accent Colors */
-  --accent: #5B8DEF;
-  --accent-hover: #4A7FD8;
-  --accent-soft: rgba(91, 141, 239, 0.12);
-  --accent-glow: rgba(91, 141, 239, 0.25);
+  --accent: #D9A441;
+  --accent-hover: #C4913A;
+  --accent-soft: rgba(217, 164, 65, 0.12);
+  --accent-glow: rgba(217, 164, 65, 0.22);
   
   /* Status Colors */
   --status-investigation: #F59E0B;
@@ -135,3 +135,31 @@ input, select, textarea {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--border);
 }
+
+[data-theme="light"] {
+  --bg: #F4F6FB;
+  --surface: #FFFFFF;
+  --surface-2: #F1F4FA;
+  --surface-3: #E8ECF5;
+  --border: #D5DCEA;
+  --border-light: #C2CBDE;
+
+  --text-primary: #16213A;
+  --text-secondary: #4A5670;
+  --text-muted: #7A8399;
+
+  --accent: #D9A441;
+  --accent-hover: #C4913A;
+  --accent-soft: rgba(217, 164, 65, 0.12);
+  --accent-glow: rgba(217, 164, 65, 0.22);
+
+  --status-investigation: #B5750A;
+  --status-chargesheeted: #3D6FCC;
+  --status-closed: #0E8F63;
+
+  --alert: #D93F3F;
+  --alert-light: #F3A5A5;
+  --success: #0E8F63;
+  --warning: #B5750A;
+}
+

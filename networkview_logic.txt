@@ -1,0 +1,145 @@
+﻿2906:   }
+2907: 
+2908:   const networkViewGraphData = useMemo(() => {
+2909:     const offendersInScope = graphData.nodes.filter(n => n.type === 'offender');
+2910:     const nodeById = new Map(graphData.nodes.map(n => [n.id, n]));
+2911:     const positionById = new Map();
+2912:     let centerNode = null;
+2913:     let shownOffenderIds;
+2914:     let linksToDraw;
+2915: 
+2916:     if (selectedOffender && (nodeById.has(selectedOffender.id) || completeAssociates?.aadhaar === selectedOffender.aadhaar)) {
+2917:       centerNode = nodeById.get(selectedOffender.id) || selectedOffender;
+2918:       positionById.set(centerNode.id, { x: 0, y: 0 });
+2919: 
+2920:       const byStrength = { strong: [], medium: [], weak: [] };
+2921:       const edgesFromCenter = [];
+2922: 
+2923:       // For a selected offender, use the complete backend associate list.
+2924:       // The normal graph remains trimmed for general browsing.
+2925:       if (
+2926:         completeAssociates &&
+2927:         completeAssociates.aadhaar === selectedOffender.aadhaar &&
+2928:         Array.isArray(completeAssociates.associates)
+2929:       ) {
+2930:         completeAssociates.associates.forEach(a => {
+2931:           const associateNode = {
+2932:             id: a.id,
+2933:             type: 'offender',
+2934:             label: a.name || 'Unknown',
+2935:             aadhaar: a.aadhaar || null,
+2936:             riskScore: a.riskScore ?? 0,
+2937:             caseCount: a.caseCount ?? 0,
+2938:             centroidLat: a.centroidLat ?? null,
+2939:             centroidLon: a.centroidLon ?? null
+2940:           };
+2941: 
+2942:           (byStrength[a.strength] || byStrength.weak).push(associateNode);
+2943: 
+2944:           edgesFromCenter.push({
+2945:             source: centerNode.id,
+2946:             target: a.id,
+2947:             type: 'offender-link',
+2948:             strength: a.strength,
+2949:             reason: a.reason,
+2950:             sharedCaseCount: a.sharedCaseCount ?? 0,
+2951:             sharedCaseIds: a.sharedCaseIds || []
+2952:           });
+2953:         });
+2954:       } else {
+2955:         // Keep existing behaviour while the complete list is loading.
+2956:         graphData.links.forEach(l => {
+2957:           if (l.type !== 'offender-link') return;
+2958:           const s = typeof l.source === 'object' ? l.source.id : l.source;
+2959:           const t = typeof l.target === 'object' ? l.target.id : l.target;
+2960:           if (s !== centerNode.id && t !== centerNode.id) return;
+2961:           const otherId = s === centerNode.id ? t : s;
+2962:           const otherNode = nodeById.get(otherId);
+2963:           if (!otherNode) return;
+2964:           (byStrength[l.strength] || byStrength.weak).push(otherNode);
+2965:           edgesFromCenter.push(l);
+2966:         });
+2967:       }
+2968: 
+2969:       const groups = ['strong', 'medium', 'weak']
+2970:         .map(key => ({ key, items: byStrength[key] }))
+2971:         .filter(g => g.items.length > 0);
+2972:       const groupCount = groups.length || 1;
+2973:       const arcSize = (2 * Math.PI - GROUP_GAP_RAD * groupCount) / groupCount;
+2974:       let cursor = -Math.PI / 2;
+2975:       groups.forEach(g => {
+2976:         const start = cursor;
+2977:         const end = cursor + arcSize;
+2978:         layoutRing(g.items, start, end, 140, 90).forEach(p => positionById.set(p.id, p));
+2979:         cursor = end + GROUP_GAP_RAD;
+2980:       });
+2981: 
+2982:       shownOffenderIds = new Set([centerNode.id, ...Object.values(byStrength).flat().map(n => n.id)]);
+2983:       linksToDraw = edgesFromCenter;
+2984:     } else {
+2985:       const limitNum = graphDisplayLimit === 'all' ? Infinity : graphDisplayLimit;
+2986:       const sorted = [...offendersInScope].sort((a, b) =>
+2987:         (b.associateCount || 0) - (a.associateCount || 0) || (b.caseCount || 0) - (a.caseCount || 0)
+2988:       );
+2989:       const shown = limitNum === Infinity ? sorted : sorted.slice(0, limitNum);
+2990:       if (shown.length === 0) {
+2991:         return { nodes: [], links: [], centerId: null };
+2992:       }
+2993:       centerNode = shown[0];
+2994:       const ring = shown.slice(1);
+2995:       positionById.set(centerNode.id, { x: 0, y: 0 });
+2996:       layoutRing(ring, -Math.PI, Math.PI, 160, 100).forEach(p => positionById.set(p.id, p));
+2997: 
+2998:       shownOffenderIds = new Set(shown.map(n => n.id));
+2999:       linksToDraw = graphData.links.filter(l => {
+3000:         if (l.type !== 'offender-link') return false;
+3001:         const s = typeof l.source === 'object' ? l.source.id : l.source;
+3002:         const t = typeof l.target === 'object' ? l.target.id : l.target;
+3003:         return (s === centerNode.id && shownOffenderIds.has(t)) || (t === centerNode.id && shownOffenderIds.has(s));
+3004:       });
+3005:     }
+3006: 
+3007:     const shownOffenderNodes = [...shownOffenderIds]
+3008:       .map(id => nodeById.get(id))
+3009:       .filter(Boolean)
+3010:       .map(n => ({ ...n, fx: positionById.get(n.id)?.x ?? 0, fy: positionById.get(n.id)?.y ?? 0, x: positionById.get(n.id)?.x ?? 0, y: positionById.get(n.id)?.y ?? 0 }));
+3011: 
+3012:     let allNodes = shownOffenderNodes;
+3013:     let allLinks = linksToDraw.map(l => ({ ...l }));
+3014: 
+3015:     if (showCaseNetwork) {
+3016:       const caseEdges = graphData.links.filter(l =>
+3017:         l.type === 'case-link' && shownOffenderIds.has(typeof l.source === 'object' ? l.source.id : l.source)
+3018:       );
+3019:       const caseNodesToShow = [];
+3020:       const caseOffsetCounter = new Map();
+3021:       caseEdges.forEach(l => {
+3022:         const offenderId = typeof l.source === 'object' ? l.source.id : l.source;
+3023:         const caseId = typeof l.target === 'object' ? l.target.id : l.target;
+3024:         const caseNode = nodeById.get(caseId);
+3025:         if (!caseNode) return;
+3026:         const parentPos = positionById.get(offenderId) || { x: 0, y: 0 };
+3027:         const n = caseOffsetCounter.get(offenderId) || 0;
+3028:         caseOffsetCounter.set(offenderId, n + 1);
+3029:         const angle = n * 0.9;
+3030:         caseNodesToShow.push({
+3031:   ...caseNode,
+3032:   fx: parentPos.x + Math.cos(angle) * 22,
+3033:   fy: parentPos.y + Math.sin(angle) * 22,
+3034:   x: parentPos.x + Math.cos(angle) * 22,
+3035:   y: parentPos.y + Math.sin(angle) * 22
+3036: });
+3037:       });
+3038:       allNodes = [...allNodes, ...caseNodesToShow];
+3039:       allLinks = [...allLinks, ...caseEdges.map(l => ({ ...l }))];
+3040:     }
+3041: 
+3042:     return { nodes: allNodes, links: allLinks, centerId: centerNode?.id || null };
+3043:    }, [graphData, selectedOffender, graphDisplayLimit, showCaseNetwork]);
+3044: 
+3045:   useEffect(() => {
+3046:     if (fgRef.current) fgRef.current.d3ReheatSimulation();
+3047:   }, [networkViewGraphData]);
+3048: 
+3049:     const selectedOffenderCases = useMemo(() => {    if (!selectedOffender) return [];
+3050:     const myCaseEdges = caseEdgesAll.filter(e => e.source === selectedOffender.id);

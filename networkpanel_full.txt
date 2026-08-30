@@ -1,0 +1,905 @@
+﻿function NetworkGraphPanel({ functionsBase }) {
+  const [rawData, setRawData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [selectedOffender, setSelectedOffender] = useState(null);
+   const [showCaseNetwork, setShowCaseNetwork] = useState(false);
+   const [networkView, setNetworkView] = useState('graph'); // 'graph' | 'map'
+    const [showAllLinks, setShowAllLinks] = useState(false);
+  const [graphDisplayLimit, setGraphDisplayLimit] = useState(25); // 10 | 25 | 50 | 'all'
+  const [districtFilter, setDistrictFilter] = useState('');
+  const [crimeTypeFilter, setCrimeTypeFilter] = useState('');
+  const [yearFilter, setYearFilter] = useState('');
+   const [hideIsolated, setHideIsolated] = useState(false);
+  const [riskFilter, setRiskFilter] = useState('');
+  const [strengthFilter, setStrengthFilter] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [aiSummary, setAiSummary] = useState(null);
+  const [aiSummaryLoading, setAiSummaryLoading] = useState(false);
+  const [courtHistory, setCourtHistory] = useState(null);
+const [courtHistoryLoading, setCourtHistoryLoading] = useState(false);
+const [relatedCasesFilter, setRelatedCasesFilter] = useState(null); // { associateId, associateName, caseIds } | null
+
+  const [highlightNodeIds, setHighlightNodeIds] = useState(null);
+  const [highlightLinkSet, setHighlightLinkSet] = useState(null);
+const [filterWidth, setFilterWidth] = useState(() => {
+    if (typeof window === 'undefined') return 220;
+    const stored = parseInt(localStorage.getItem('ksp-network-filter-width'), 10);
+    return Number.isFinite(stored) ? stored : 220;
+  });
+  const [offenderPanelWidth, setOffenderPanelWidth] = useState(() => {
+    if (typeof window === 'undefined') return 300;
+    const stored = parseInt(localStorage.getItem('ksp-network-offender-width'), 10);
+    return Number.isFinite(stored) ? stored : 300;
+  });
+
+  useEffect(() => {
+    try { localStorage.setItem('ksp-network-filter-width', String(filterWidth)); } catch {}
+  }, [filterWidth]);
+
+  useEffect(() => {
+    try { localStorage.setItem('ksp-network-offender-width', String(offenderPanelWidth)); } catch {}
+  }, [offenderPanelWidth]);
+  const containerRef = useRef(null);
+  const resizeObserverRef = useRef(null);
+
+  const setContainerRef = useCallback((node) => {
+    containerRef.current = node;
+    if (resizeObserverRef.current) {
+      resizeObserverRef.current.disconnect();
+      resizeObserverRef.current = null;
+    }
+    if (node) {
+      const updateSize = () => {
+        const rect = node.getBoundingClientRect();
+        const w = Math.round(rect.width);
+        const h = Math.round(rect.height);
+        if (w > 0 && h > 0) {
+          setDimensions({ width: w, height: h });
+        }
+      };
+      updateSize();
+      const ro = new ResizeObserver(updateSize);
+      ro.observe(node);
+      resizeObserverRef.current = ro;
+    }
+  }, []);
+  const [dimensions, setDimensions] = useState({
+    width: typeof window !== 'undefined' ? Math.max(400, window.innerWidth - 600) : 800,
+    height: typeof window !== 'undefined' ? Math.max(400, window.innerHeight - 260) : 560
+  });
+
+  useEffect(() => {
+        // Request a larger ranked pool than the render budget below, so the
+    // frontend can select the actual most-connected offenders by real
+    // associateCount/caseCount rather than trusting the backend's smaller
+    // default riskScore-based trim. includeCases/includeMedium preserve the
+    // existing "Show Case Network" toggle and medium-tier edges.
+        fetch(`${functionsBase}/network-graph-function/?limit=150&includeCases=true&includeMedium=true`)
+      .then(res => res.json())
+      .then(data => {
+        setRawData(data);
+        setLoading(false);
+      })
+      .catch(err => {
+        console.error('Network graph fetch error:', err);
+        setLoading(false);
+      });
+  }, [functionsBase]);
+
+  const offenderNodes = useMemo(() => (rawData?.nodes || []).filter(n => n.type === 'offender'), [rawData]);
+  const caseNodesAll = useMemo(() => (rawData?.nodes || []).filter(n => n.type === 'case'), [rawData]);
+  const offenderEdgesAll = useMemo(() => (rawData?.edges || []).filter(e => e.type === 'offender-link'), [rawData]);
+  const caseEdgesAll = useMemo(() => (rawData?.edges || []).filter(e => e.type === 'case-link'), [rawData]);
+
+  const allDistricts = useMemo(() => {
+    const s = new Set();
+    offenderNodes.forEach(n => (n.districts || []).forEach(d => s.add(d)));
+    return [...s].sort();
+  }, [offenderNodes]);
+
+  const allCrimeTypes = useMemo(() => {
+    const s = new Set();
+    offenderNodes.forEach(n => (n.crimeTypeBreakdown || []).forEach(t => s.add(t.crimeType)));
+    return [...s].sort();
+  }, [offenderNodes]);
+
+  const allYears = useMemo(() => {
+    const s = new Set();
+    offenderNodes.forEach(n => {
+      const y1 = n.firstCaseDate ? new Date(n.firstCaseDate).getFullYear() : null;
+      const y2 = n.lastCaseDate ? new Date(n.lastCaseDate).getFullYear() : null;
+      if (y1) s.add(y1);
+      if (y2) s.add(y2);
+    });
+    return [...s].sort((a, b) => b - a);
+  }, [offenderNodes]);
+
+  const offenderActiveInYear = (n, year) => {
+    if (!year) return true;
+    const y1 = n.firstCaseDate ? new Date(n.firstCaseDate).getFullYear() : null;
+    const y2 = n.lastCaseDate ? new Date(n.lastCaseDate).getFullYear() : null;
+    if (y1 === null && y2 === null) return false;
+    const lo = Math.min(y1 ?? y2, y2 ?? y1);
+    const hi = Math.max(y1 ?? y2, y2 ?? y1);
+    return year >= lo && year <= hi;
+  };
+
+    const preIsolationFilteredNodes = useMemo(() => offenderNodes.filter(n => {
+    if (districtFilter && !(n.districts || []).includes(districtFilter)) return false;
+    if (crimeTypeFilter && !(n.crimeTypeBreakdown || []).some(t => t.crimeType === crimeTypeFilter)) return false;
+    if (yearFilter && !offenderActiveInYear(n, Number(yearFilter))) return false;
+    if (riskFilter === 'high' && (n.riskScore || 0) < 80) return false;
+    if (riskFilter === 'medium' && ((n.riskScore || 0) < 50 || (n.riskScore || 0) >= 80)) return false;
+    if (riskFilter === 'low' && (n.riskScore || 0) >= 50) return false;
+        return true;
+  }), [offenderNodes, districtFilter, crimeTypeFilter, yearFilter, riskFilter]);
+
+  const preIsolationIds = useMemo(() => new Set(preIsolationFilteredNodes.map(n => n.id)), [preIsolationFilteredNodes]);
+
+  const filteredOffenderNodes = useMemo(() => {
+    if (!hideIsolated) return preIsolationFilteredNodes;
+    const connectedIds = new Set();
+    offenderEdgesAll.forEach(e => {
+      if (preIsolationIds.has(e.source) && preIsolationIds.has(e.target)) {
+        connectedIds.add(e.source);
+        connectedIds.add(e.target);
+      }
+    });
+    return preIsolationFilteredNodes.filter(n => connectedIds.has(n.id));
+  }, [preIsolationFilteredNodes, preIsolationIds, hideIsolated, offenderEdgesAll]);
+
+  const filteredIds = useMemo(() => new Set(filteredOffenderNodes.map(n => n.id)), [filteredOffenderNodes]);
+
+  const fgRef = useRef();
+
+    const strengthRankFilter = { strong: 1, medium: 2, weak: 3 };
+  const graphData = useMemo(() => {
+    const offenderLinks = offenderEdgesAll
+      .filter(e => filteredIds.has(e.source) && filteredIds.has(e.target))
+      .filter(e => !strengthFilter || strengthRankFilter[e.strength] <= strengthRankFilter[strengthFilter])
+      .map(e => ({ ...e }));
+
+    if (!showCaseNetwork) {
+      return { nodes: filteredOffenderNodes.map(n => ({ ...n })), links: offenderLinks };
+    }
+
+    const relevantCaseEdges = caseEdgesAll.filter(e => filteredIds.has(e.source));
+    const relevantCaseIds = new Set(relevantCaseEdges.map(e => e.target));
+    const relevantCaseNodes = caseNodesAll.filter(n => relevantCaseIds.has(n.id));
+
+    return {
+      nodes: [...filteredOffenderNodes.map(n => ({ ...n })), ...relevantCaseNodes.map(n => ({ ...n }))],
+      links: [...offenderLinks, ...relevantCaseEdges.map(e => ({ ...e }))]
+    };
+   }, [showCaseNetwork, filteredOffenderNodes, filteredIds, offenderEdgesAll, caseEdgesAll, caseNodesAll, strengthFilter]);
+const connectedAssociates = useMemo(() => {
+  if (!selectedOffender) return [];
+  const myId = `offender-${selectedOffender.aadhaar}`;
+  return graphData.links
+    .filter(l => {
+      const s = typeof l.source === 'object' ? l.source.id : l.source;
+      const t = typeof l.target === 'object' ? l.target.id : l.target;
+      return l.type === 'offender-link' && (s === myId || t === myId);
+    })
+    .map(l => {
+      const s = typeof l.source === 'object' ? l.source.id : l.source;
+      const t = typeof l.target === 'object' ? l.target.id : l.target;
+      const otherId = s === myId ? t : s;
+      const otherNode = graphData.nodes.find(n => n.id === otherId);
+           return {
+        id: otherId,
+        name: otherNode?.label || 'Unknown',
+        strength: l.strength,
+        reason: l.reason,
+        riskScore: otherNode?.riskScore,
+        sharedCaseCount: l.sharedCaseCount ?? 0,
+        sharedCaseIds: l.sharedCaseIds || []
+      };
+    });
+    }, [selectedOffender, graphData]);
+
+   // ---- Network View radial layout ----
+  // Replaces the old force-directed layout with a fixed, intelligence-style
+  // one: a center offender (selected, or -- with nothing selected -- the
+  // single most-connected offender among the displayed pool) with real
+  // direct associates arranged around them in strength-grouped arcs
+  // (multiple concentric rings per group when there are many associates, so
+  // labels stay legible). Only edges touching the center are ever drawn --
+  // never a full mesh. Case nodes are only included when "Show Case Network"
+  // is on, and sit near their parent offender rather than getting a ring.
+  const RING_CAPACITY = 14;
+  const GROUP_GAP_RAD = 8 * Math.PI / 180;
+
+  function layoutRing(items, angleStart, angleEnd, baseRadius, ringGap) {
+    const positions = [];
+    let idx = 0;
+    let ring = 0;
+    while (idx < items.length) {
+      const ringItems = items.slice(idx, idx + RING_CAPACITY);
+      idx += RING_CAPACITY;
+      const radius = baseRadius + ring * ringGap;
+      const span = angleEnd - angleStart;
+      const step = span / (ringItems.length + 1);
+      ringItems.forEach((item, i) => {
+        const angle = angleStart + step * (i + 1);
+        positions.push({ id: item.id, x: Math.cos(angle) * radius, y: Math.sin(angle) * radius });
+      });
+      ring++;
+    }
+    return positions;
+  }
+
+  const networkViewGraphData = useMemo(() => {
+    const offendersInScope = graphData.nodes.filter(n => n.type === 'offender');
+    const nodeById = new Map(graphData.nodes.map(n => [n.id, n]));
+    const positionById = new Map();
+    let centerNode = null;
+    let shownOffenderIds;
+    let linksToDraw;
+
+    if (selectedOffender && nodeById.has(selectedOffender.id)) {
+      centerNode = nodeById.get(selectedOffender.id);
+      positionById.set(centerNode.id, { x: 0, y: 0 });
+
+      const byStrength = { strong: [], medium: [], weak: [] };
+      const edgesFromCenter = [];
+      graphData.links.forEach(l => {
+        if (l.type !== 'offender-link') return;
+        const s = typeof l.source === 'object' ? l.source.id : l.source;
+        const t = typeof l.target === 'object' ? l.target.id : l.target;
+        if (s !== centerNode.id && t !== centerNode.id) return;
+        const otherId = s === centerNode.id ? t : s;
+        const otherNode = nodeById.get(otherId);
+        if (!otherNode) return;
+        (byStrength[l.strength] || byStrength.weak).push(otherNode);
+        edgesFromCenter.push(l);
+      });
+
+      const groups = ['strong', 'medium', 'weak']
+        .map(key => ({ key, items: byStrength[key] }))
+        .filter(g => g.items.length > 0);
+      const groupCount = groups.length || 1;
+      const arcSize = (2 * Math.PI - GROUP_GAP_RAD * groupCount) / groupCount;
+      let cursor = -Math.PI / 2;
+      groups.forEach(g => {
+        const start = cursor;
+        const end = cursor + arcSize;
+        layoutRing(g.items, start, end, 140, 90).forEach(p => positionById.set(p.id, p));
+        cursor = end + GROUP_GAP_RAD;
+      });
+
+      shownOffenderIds = new Set([centerNode.id, ...Object.values(byStrength).flat().map(n => n.id)]);
+      linksToDraw = edgesFromCenter;
+    } else {
+      const limitNum = graphDisplayLimit === 'all' ? Infinity : graphDisplayLimit;
+      const sorted = [...offendersInScope].sort((a, b) =>
+        (b.associateCount || 0) - (a.associateCount || 0) || (b.caseCount || 0) - (a.caseCount || 0)
+      );
+      const shown = limitNum === Infinity ? sorted : sorted.slice(0, limitNum);
+      if (shown.length === 0) {
+        return { nodes: [], links: [], centerId: null };
+      }
+      centerNode = shown[0];
+      const ring = shown.slice(1);
+      positionById.set(centerNode.id, { x: 0, y: 0 });
+      layoutRing(ring, -Math.PI, Math.PI, 160, 100).forEach(p => positionById.set(p.id, p));
+
+      shownOffenderIds = new Set(shown.map(n => n.id));
+      linksToDraw = graphData.links.filter(l => {
+        if (l.type !== 'offender-link') return false;
+        const s = typeof l.source === 'object' ? l.source.id : l.source;
+        const t = typeof l.target === 'object' ? l.target.id : l.target;
+        return (s === centerNode.id && shownOffenderIds.has(t)) || (t === centerNode.id && shownOffenderIds.has(s));
+      });
+    }
+
+    const shownOffenderNodes = [...shownOffenderIds]
+      .map(id => nodeById.get(id))
+      .filter(Boolean)
+      .map(n => ({ ...n, fx: positionById.get(n.id)?.x ?? 0, fy: positionById.get(n.id)?.y ?? 0 }));
+
+    let allNodes = shownOffenderNodes;
+    let allLinks = linksToDraw.map(l => ({ ...l }));
+
+    if (showCaseNetwork) {
+      const caseEdges = graphData.links.filter(l =>
+        l.type === 'case-link' && shownOffenderIds.has(typeof l.source === 'object' ? l.source.id : l.source)
+      );
+      const caseNodesToShow = [];
+      const caseOffsetCounter = new Map();
+      caseEdges.forEach(l => {
+        const offenderId = typeof l.source === 'object' ? l.source.id : l.source;
+        const caseId = typeof l.target === 'object' ? l.target.id : l.target;
+        const caseNode = nodeById.get(caseId);
+        if (!caseNode) return;
+        const parentPos = positionById.get(offenderId) || { x: 0, y: 0 };
+        const n = caseOffsetCounter.get(offenderId) || 0;
+        caseOffsetCounter.set(offenderId, n + 1);
+        const angle = n * 0.9;
+        caseNodesToShow.push({
+          ...caseNode,
+          fx: parentPos.x + Math.cos(angle) * 22,
+          fy: parentPos.y + Math.sin(angle) * 22
+        });
+      });
+      allNodes = [...allNodes, ...caseNodesToShow];
+      allLinks = [...allLinks, ...caseEdges.map(l => ({ ...l }))];
+    }
+
+    return { nodes: allNodes, links: allLinks, centerId: centerNode?.id || null };
+  }, [graphData, selectedOffender, graphDisplayLimit, showCaseNetwork]);
+
+    const selectedOffenderCases = useMemo(() => {    if (!selectedOffender) return [];
+    const myCaseEdges = caseEdgesAll.filter(e => e.source === selectedOffender.id);
+    let myCaseIds = new Set(myCaseEdges.map(e => e.target));
+    // When a "Related Cases" filter is active, narrow to only the FIRs
+    // shared with that specific associate, without altering the underlying
+    // case/edge data itself.
+    if (relatedCasesFilter && relatedCasesFilter.caseIds) {
+      const sharedSet = new Set(relatedCasesFilter.caseIds);
+      myCaseIds = new Set([...myCaseIds].filter(id => sharedSet.has(id)));
+    }
+    return caseNodesAll
+      .filter(n => myCaseIds.has(n.id))
+      .sort((a, b) => (a.dateOfFIR || '').localeCompare(b.dateOfFIR || ''));
+  }, [selectedOffender, caseEdgesAll, caseNodesAll, relatedCasesFilter]);
+
+  useEffect(() => {
+    if (!fgRef.current || graphData.nodes.length === 0) return;
+    if (dimensions.width === 0 || dimensions.height === 0) return;
+    const t = setTimeout(() => {
+      fgRef.current.zoomToFit(400, 50);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [graphData, dimensions.width, dimensions.height]);
+
+  const stats = useMemo(() => {
+    const repeatOffenderCount = offenderNodes.filter(n => (n.caseCount || 0) > 1).length;
+    const highRiskCount = offenderNodes.filter(n => (n.riskScore || 0) >= 80).length;
+    const crossDistrictCount = offenderNodes.filter(n => (n.districts || []).length > 1).length;
+    const avgAssociates = offenderNodes.length
+      ? (offenderNodes.reduce((sum, n) => sum + (n.associateCount || 0), 0) / offenderNodes.length).toFixed(1)
+      : '0';
+    const repeatOffenderPct = offenderNodes.length
+      ? Math.round((repeatOffenderCount / offenderNodes.length) * 100)
+      : 0;
+    const mostConnected = offenderNodes.reduce((max, n) =>
+      (n.associateCount || 0) > (max?.associateCount || 0) ? n : max, null);
+
+    return {
+      totalOffenders: offenderNodes.length,
+      totalCasesLinked: rawData?.totalCasesLinked ?? caseNodesAll.length,
+      networkNodes: rawData?.networkNodes ?? (offenderNodes.length + caseNodesAll.length),
+      networkEdges: rawData?.networkEdges ?? (offenderEdgesAll.length + caseEdgesAll.length),
+      avgRisk: rawData?.averageRiskScore ?? 0,
+      repeatOffenderCount,
+      highRiskCount,
+      crossDistrictCount,
+      avgAssociates,
+      repeatOffenderPct,
+      mostConnected
+    };
+  }, [rawData, offenderNodes, caseNodesAll, offenderEdgesAll, caseEdgesAll]);
+
+  const handleNodeClick = (node) => {
+    if (node.type !== 'offender') return;
+    setSelectedOffender(node);
+    setAiSummary(null);
+    setCourtHistory(null);
+setCourtHistoryLoading(false);
+
+    const connectedLinks = graphData.links.filter(l => {
+      const sourceId = typeof l.source === 'object' ? l.source.id : l.source;
+      const targetId = typeof l.target === 'object' ? l.target.id : l.target;
+      return sourceId === node.id || targetId === node.id;
+    });
+    const connectedIds = new Set([node.id]);
+    connectedLinks.forEach(l => {
+      const sourceId = typeof l.source === 'object' ? l.source.id : l.source;
+      const targetId = typeof l.target === 'object' ? l.target.id : l.target;
+      connectedIds.add(sourceId);
+      connectedIds.add(targetId);
+    });
+        setHighlightNodeIds(connectedIds);
+    setHighlightLinkSet(new Set(connectedLinks));
+  };
+
+  // Search finds and selects a match (revealing their real connections),
+  // rather than hiding every other offender -- a single isolated match had
+  // no one left to draw a link to.
+  useEffect(() => {
+    if (!searchTerm.trim()) return;
+    const match = offenderNodes.find(n => n.label.toLowerCase().includes(searchTerm.toLowerCase()));
+    if (match) {
+      const graphNode = graphData.nodes.find(n => n.id === match.id);
+      if (graphNode) handleNodeClick(graphNode);
+    }
+  }, [searchTerm]);
+
+  const clearSelection = () => {
+    setSelectedOffender(null);
+    setAiSummary(null);
+    setCourtHistory(null);
+    setCourtHistoryLoading(false);
+    setHighlightNodeIds(null);
+    setHighlightLinkSet(null);
+  };
+const fetchCourtHistory = () => {
+  if (!selectedOffender) return;
+  setCourtHistoryLoading(true);
+  fetch(`${functionsBase}/case-court-history-function/?aadhaar=${encodeURIComponent(selectedOffender.aadhaar)}`)
+    .then(res => res.json())
+    .then(data => { setCourtHistory(data); setCourtHistoryLoading(false); })
+    .catch(err => { console.error('Court history fetch error:', err); setCourtHistoryLoading(false); });
+};
+
+  const generateSummary = () => {
+    if (!selectedOffender) return;
+    setAiSummaryLoading(true);
+    fetch(`${functionsBase}/network-graph-function/?offenderId=${encodeURIComponent(selectedOffender.aadhaar)}&mode=summary`)
+      .then(res => res.json())
+      .then(d => {
+        setAiSummary(d.summary || 'No summary available.');
+        setAiSummaryLoading(false);
+      })
+      .catch(err => {
+        console.error('AI summary error:', err);
+        setAiSummary('Unable to generate summary right now.');
+        setAiSummaryLoading(false);
+      });
+  };
+
+  if (loading) {
+    return <div className="network-panel-loading mono">Loading criminal network data...</div>;
+  }
+
+  if (!rawData || offenderNodes.length === 0) {
+    return (
+      <div className="network-panel-empty">
+        <p>No repeat offenders detected in current data.</p>
+        <p className="text-muted">This view highlights individuals linked to 2 or more cases.</p>
+      </div>
+    );
+  }
+
+  const isDimmed = (id) => highlightNodeIds !== null && !highlightNodeIds.has(id);
+
+    
+
+  const nodeColor = (n) => {
+    const baseColor = n.type === 'offender' ? getRiskColor(n.riskScore || 0) : CASE_NODE_COLOR;
+    return isDimmed(n.id) ? FADE_COLOR : baseColor;
+  };
+
+  const linkColor = (l) => {
+    const baseColor = l.strength === 'strong'
+      ? 'rgba(224, 138, 62, 0.9)'
+      : l.strength === 'medium'
+        ? 'rgba(74, 127, 181, 0.65)'
+        : 'rgba(139, 150, 170, 0.35)';
+    if (highlightLinkSet !== null && !highlightLinkSet.has(l)) return FADE_LINK_COLOR;
+    return baseColor;
+  };
+  const linkWidth = (l) => (l.strength === 'strong' ? 2.5 : l.strength === 'medium' ? 1.5 : 1);
+  const linkDash = (l) => (l.strength === 'weak' ? [4, 2] : null);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16, height: 'calc(100vh - 180px)', minHeight: 500 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, flexShrink: 0 }}>
+        <StatCard label="Total Offenders" value={stats.totalOffenders} />
+        <StatCard label="Total Cases Linked" value={stats.totalCasesLinked} />
+        <StatCard label="Network Nodes" value={stats.networkNodes} />
+        <StatCard label="Total Connections" value={stats.networkEdges} />
+        <StatCard label="Average Risk Score" value={`${stats.avgRisk}/100`} />
+        <StatCard label="Repeat Offenders" value={stats.repeatOffenderCount} />
+        <StatCard label="High-Risk Offenders (80+)" value={stats.highRiskCount} />
+                <StatCard label="Cross-District Networks" value={stats.crossDistrictCount} />
+      </div>
+
+              <div style={{ display: 'flex', gap: 8, flexShrink: 0, alignItems: 'center' }}>
+          <button
+            onClick={() => setNetworkView('graph')}
+            style={{
+              padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              background: networkView === 'graph' ? 'var(--accent)' : '#111827',
+              color: networkView === 'graph' ? '#fff' : '#8B96AA',
+              border: '1px solid #232D42'
+            }}
+          >
+            🕸 Network View
+          </button>
+          <button
+            onClick={() => setNetworkView('map')}
+            style={{
+              padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              background: networkView === 'map' ? 'var(--accent)' : '#111827',
+              color: networkView === 'map' ? '#fff' : '#8B96AA',
+              border: '1px solid #232D42'
+            }}
+          >
+            🗺 Map View
+          </button>
+          
+       
+        </div>
+
+      <div style={{ display: 'flex', gap: 16, flex: 1, minHeight: 0 }}>
+       <div style={{ width: filterWidth, flexShrink: 0, background: '#111827', border: '1px solid #232D42', borderRadius: 8, padding: 16, overflowY: 'auto' }}>
+          <h4 style={{ margin: '0 0 12px', color: '#E8ECF3', fontSize: 14 }}>Filters</h4>
+
+          <label style={{ fontSize: 11, color: '#8B96AA', display: 'block', marginBottom: 4 }}>District</label>
+          <select
+            style={{ width: '100%', marginBottom: 12, background: '#0F1523', color: '#E8ECF3', border: '1px solid #232D42', borderRadius: 4, padding: '6px 8px', fontSize: 12 }}
+            value={districtFilter}
+            onChange={e => setDistrictFilter(e.target.value)}
+          >
+            <option value="">All Districts</option>
+            {allDistricts.map(d => <option key={d} value={d}>{d}</option>)}
+          </select>
+
+          <label style={{ fontSize: 11, color: '#8B96AA', display: 'block', marginBottom: 4 }}>Crime Type</label>
+          <select
+            style={{ width: '100%', marginBottom: 12, background: '#0F1523', color: '#E8ECF3', border: '1px solid #232D42', borderRadius: 4, padding: '6px 8px', fontSize: 12 }}
+            value={crimeTypeFilter}
+            onChange={e => setCrimeTypeFilter(e.target.value)}
+          >
+            <option value="">All Crime Types</option>
+            {allCrimeTypes.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+
+          <label style={{ fontSize: 11, color: '#8B96AA', display: 'block', marginBottom: 4 }}>Search Offender</label>
+          <input
+            style={{ width: '100%', marginBottom: 12, background: '#0F1523', color: '#E8ECF3', border: '1px solid #232D42', borderRadius: 4, padding: '6px 8px', fontSize: 12, boxSizing: 'border-box' }}
+            placeholder="Name..."
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+          />
+
+          <label style={{ fontSize: 11, color: '#8B96AA', display: 'block', marginBottom: 4 }}>Year</label>
+          <select
+            style={{ width: '100%', marginBottom: 12, background: '#0F1523', color: '#E8ECF3', border: '1px solid #232D42', borderRadius: 4, padding: '6px 8px', fontSize: 12 }}
+            value={yearFilter}
+            onChange={e => setYearFilter(e.target.value)}
+          >
+            <option value="">All Years</option>
+            {allYears.map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+
+          <label style={{ fontSize: 12, color: '#C7CEDA', display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+            <input type="checkbox" checked={hideIsolated} onChange={e => setHideIsolated(e.target.checked)} />
+            Hide Isolated Nodes
+          </label>
+
+          <label style={{ fontSize: 12, color: '#C7CEDA', display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+            <input type="checkbox" checked={showCaseNetwork} onChange={e => setShowCaseNetwork(e.target.checked)} />
+            Show Case Network
+          </label>
+
+          <div style={{ marginTop: 20, borderTop: '1px solid #232D42', paddingTop: 12 }}>
+            <h5 style={{ margin: '0 0 8px', color: '#8B96AA', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>Legend</h5>
+            <LegendRow color={RISK_HIGH} label="High Risk (80-100)" shape="circle" />
+            <LegendRow color={RISK_MED} label="Medium Risk (50-79)" shape="circle" />
+            <LegendRow color={RISK_LOW} label="Low Risk (<50)" shape="circle" />
+            {showCaseNetwork && <LegendRow color={CASE_NODE_COLOR} label="Case" shape="square" />}
+            <LegendRow color="#E08A3E" label="Strong Association" line />
+            <LegendRow color="rgba(74,127,181,0.8)" label="Medium Association" line />
+            <LegendRow color="#8B96AA" label="Weak Association" line dashed />
+          </div>
+        </div>
+<ResizeHandle
+          currentWidth={filterWidth}
+          setWidth={setFilterWidth}
+          min={160}
+          max={480}
+          direction="grow-right"
+          defaultWidth={220}
+        />
+
+        <div style={{ flex: 1, display: 'flex', minWidth: 0, minHeight: 0 }}>
+          <div
+            style={{
+              flex: 1,
+              minWidth: 0,
+              minHeight: 0,
+              boxSizing: 'border-box',
+              background: '#0F1523',
+              border: '1px solid #232D42',
+              borderRadius: 8,
+              padding: 16,
+              display: 'flex'
+            }}
+          >
+                        <div style={{ flex: 1, position: 'relative', minWidth: 0, minHeight: 0 }} ref={setContainerRef}>
+              {networkView === 'graph' ? (
+                <>
+                  {/* Network display controls */}
+                  <div style={{
+                    position: 'absolute', top: 10, left: 10, zIndex: 10,
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    background: 'rgba(15,21,35,0.94)',
+                    border: '1px solid #26344F', borderRadius: 8, padding: '6px 8px'
+                  }}>
+                    <span style={{ color: '#8B96AA', fontSize: 11 }}>Show:</span>
+                    {[10, 25, 50, 'all'].map(limit => (
+                      <button
+                        key={limit}
+                        onClick={() => setGraphDisplayLimit(limit)}
+                        style={{
+                          padding: '4px 8px', borderRadius: 5,
+                          border: '1px solid #33415C',
+                          background: graphDisplayLimit === limit ? '#2563EB' : '#111827',
+                          color: '#E8ECF3', cursor: 'pointer', fontSize: 11,
+                          fontWeight: graphDisplayLimit === limit ? 700 : 400
+                        }}
+                      >
+                        {limit === 'all' ? 'All' : `Top ${limit}`}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div style={{
+                    position: 'absolute', top: 10, right: 10, zIndex: 10,
+                    display: 'flex', flexDirection: 'column', gap: 4
+                  }}>
+                    <button
+                      onClick={() => fgRef.current && fgRef.current.zoom(fgRef.current.zoom() * 1.3, 200)}
+                      style={{ width: 30, height: 30, background: '#111827', border: '1px solid #33415C', color: '#E8ECF3', borderRadius: 5, cursor: 'pointer', fontSize: 16 }}
+                    >+</button>
+                    <button
+                      onClick={() => fgRef.current && fgRef.current.zoom(fgRef.current.zoom() * 0.77, 200)}
+                      style={{ width: 30, height: 30, background: '#111827', border: '1px solid #33415C', color: '#E8ECF3', borderRadius: 5, cursor: 'pointer', fontSize: 16 }}
+                    >-</button>
+                    <button
+                      onClick={() => fgRef.current && fgRef.current.zoomToFit(500, 70)}
+                      style={{ width: 30, height: 30, background: '#111827', border: '1px solid #33415C', color: '#E8ECF3', borderRadius: 5, cursor: 'pointer', fontSize: 13 }}
+                    >?</button>
+                  </div>
+
+                  <ForceGraph2D
+                    ref={fgRef}
+                    graphData={networkViewGraphData}
+                    width={dimensions.width}
+                    height={dimensions.height}
+                    backgroundColor="#0F1523"
+                    nodeRelSize={6}
+                    nodeVal={n =>
+                      n.type === 'offender'
+                        ? Math.max(5, Math.min(16, 5 + (n.associateCount || 0) / 12))
+                        : 3
+                    }
+                    nodeColor={n => {
+                      if (n.id === networkViewGraphData.centerId) return '#F5B942';
+                      if (n.type === 'case') return '#64748B';
+                      return getRiskColor(n.riskScore || 0);
+                    }}
+                    nodeLabel={n =>
+                      n.type === 'offender'
+                        ? `${n.label}   ${n.associateCount || 0} associates   Risk ${n.riskScore || 0}/100`
+                        : `${n.label}   ${n.crimeType || 'Unknown crime'}`
+                    }
+                    nodeCanvasObject={(node, ctx, globalScale) => {
+                      if (node.type === 'case') {
+                        ctx.beginPath();
+                        ctx.arc(node.x, node.y, 3, 0, 2 * Math.PI);
+                        ctx.fillStyle = '#64748B';
+                        ctx.fill();
+                        return;
+                      }
+
+                      const isCenter = node.id === networkViewGraphData.centerId;
+                      const radius = isCenter
+                        ? 12
+                        : Math.max(5, Math.min(11, 5 + (node.associateCount || 0) / 15));
+
+                      ctx.beginPath();
+                      ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI);
+                      ctx.fillStyle = isCenter ? '#F5B942' : getRiskColor(node.riskScore || 0);
+                      ctx.fill();
+
+                      ctx.lineWidth = isCenter ? 3 : 1;
+                      ctx.strokeStyle = isCenter ? '#FFFFFF' : 'rgba(255,255,255,0.25)';
+                      ctx.stroke();
+
+                      if (globalScale > 0.65 || isCenter) {
+                        const fontSize = isCenter ? 13 / globalScale : 10 / globalScale;
+                        ctx.font = `${isCenter ? '700' : '500'} ${fontSize}px Arial`;
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'top';
+
+                        const label = node.label && node.label.length > 20
+                          ? node.label.slice(0, 20) + ' '
+                          : node.label;
+
+                        ctx.fillStyle = '#E8ECF3';
+                        ctx.fillText(label, node.x, node.y + radius + (isCenter ? 5 : 3));
+
+                        if (isCenter) {
+                          ctx.font = `600 ${10 / globalScale}px Arial`;
+                          ctx.fillStyle = '#F5B942';
+                          ctx.fillText(
+                            `${node.associateCount || 0} associates`,
+                            node.x,
+                            node.y + radius + 18
+                          );
+                        }
+                      }
+                    }}
+                    nodePointerAreaPaint={(node, color, ctx) => {
+                      const radius = node.type === 'offender'
+                        ? (node.id === networkViewGraphData.centerId ? 16 : 12)
+                        : 6;
+                      ctx.fillStyle = color;
+                      ctx.beginPath();
+                      ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI);
+                      ctx.fill();
+                    }}
+                    linkColor={l =>
+                      l.strength === 'strong' ? '#E08A3E' :
+                      l.strength === 'medium' ? '#4A7FB5' : '#667085'
+                    }
+                    linkWidth={l =>
+                      l.strength === 'strong' ? 2.5 :
+                      l.strength === 'medium' ? 1.5 : 1
+                    }
+                    linkLineDash={l => l.strength === 'weak' ? [4, 4] : null}
+                    onNodeClick={handleNodeClick}
+                    onBackgroundClick={clearSelection}
+                    enableZoomInteraction={true}
+                    enablePanInteraction={true}
+                    cooldownTime={0}
+                    warmupTicks={0}
+                    onEngineStop={() => {
+                      if (fgRef.current) fgRef.current.zoomToFit(500, 70);
+                    }}
+                  />
+                </>
+                               ) : (
+                                                 <OffenderMapView
+                      graphData={graphData}
+                      onViewHistory={handleNodeClick}
+                    />
+                  )}
+              {!selectedOffender && graphDisplayLimit !== 'all' && graphData.nodes.filter(n => n.type === 'offender').length > graphDisplayLimit && (
+                <div style={{ position: 'absolute', bottom: 8, left: 8, zIndex: 10, background: 'rgba(17,24,39,0.85)', color: '#8B96AA', fontSize: 11, padding: '4px 10px', borderRadius: 6, border: '1px solid #232D42' }}>
+                  Showing top connected network • {graphDisplayLimit} of {graphData.nodes.filter(n => n.type === 'offender').length}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {selectedOffender && (
+  <div className="court-modal-overlay" onClick={clearSelection}>
+    <div className="court-modal offender-modal" onClick={e => e.stopPropagation()}>
+      <div className="court-modal-header">
+        <h4>👤 Offender Profile</h4>
+        <button className="court-modal-close" onClick={clearSelection}>&times;</button>
+      </div>
+      <div className="court-modal-body">
+        <div className="offender-modal-hero">
+          <div>
+            <div className="offender-modal-name">{selectedOffender.label}</div>
+            <div className="offender-modal-id">ID: {selectedOffender.aadhaar}</div>
+          </div>
+          <div className="risk-badge" style={{ background: `${getRiskColor(selectedOffender.riskScore || 0)}22`, color: getRiskColor(selectedOffender.riskScore || 0) }}>
+            <div className="risk-badge-score">{selectedOffender.riskScore}</div>
+            <div className="risk-badge-label">Risk /100</div>
+          </div>
+        </div>
+
+        <DetailRow label="Total Linked Cases" value={selectedOffender.caseCount} />
+        <DetailRow label="Known Associates" value={selectedOffender.associateCount} />
+        <DetailRow label="Districts" value={(selectedOffender.districts || []).join(', ') || 'Unknown'} />
+        <DetailRow label="First Case" value={selectedOffender.firstCaseDate || 'Unknown'} />
+        <DetailRow label="Last Case" value={selectedOffender.lastCaseDate || 'Unknown'} />
+
+        <div className="offender-section-title">Crime Type Breakdown</div>
+        {(selectedOffender.crimeTypeBreakdown || []).map(t => (
+          <div key={t.crimeType} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#C7CEDA', padding: '3px 0' }}>
+            <span>{t.crimeType}</span><span>{t.count}</span>
+          </div>
+        ))}
+
+        <div className="offender-section-title">Connected To ({connectedAssociates.length})</div>
+        {connectedAssociates.length === 0 && <div className="court-empty-note">No known associates in the current graph view.</div>}
+                {connectedAssociates.map(a => (
+          <div key={a.id} className="associate-card">
+            <div>
+              <div className="associate-name">{a.name}</div>
+              <div className="associate-reason">{a.reason}</div>
+              <div style={{ fontSize: 11, color: '#8B96AA', marginTop: 2 }}>
+                {a.sharedCaseCount} related FIR{a.sharedCaseCount === 1 ? '' : 's'}
+              </div>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+              <span className={`associate-strength ${a.strength}`} title="Association Strength">{a.strength}</span>
+              {a.sharedCaseCount > 0 && (
+                <button
+                  onClick={() => setRelatedCasesFilter({ associateId: a.id, associateName: a.name, caseIds: a.sharedCaseIds })}
+                  style={{ fontSize: 10, padding: '3px 8px', background: '#1A2438', border: '1px solid #232D42', color: '#D9A441', borderRadius: 4, cursor: 'pointer' }}
+                >
+                  Related Cases
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+
+                {relatedCasesFilter && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#1A2438', border: '1px solid #D9A441', borderRadius: 6, padding: '6px 10px', marginBottom: 8, fontSize: 11 }}>
+            <span style={{ color: '#E8ECF3' }}>Showing FIRs shared with <strong>{relatedCasesFilter.associateName}</strong></span>
+            <button onClick={() => setRelatedCasesFilter(null)} style={{ background: 'none', border: 'none', color: '#D9A441', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>Clear</button>
+          </div>
+        )}
+        <div className="offender-section-title">Linked Cases ({selectedOffenderCases.length})</div>
+        {selectedOffenderCases.map(c => (
+          <div key={c.id} className="linked-case-card">
+            <div style={{ fontWeight: 600, color: '#E8ECF3' }}>{c.label}</div>
+            <div style={{ color: '#8B96AA' }}>{c.crimeType} · {c.status}{c.district ? ` · ${c.district}` : ''}</div>
+            {c.dateOfFIR && <div style={{ color: '#8B96AA' }}>{c.dateOfFIR}</div>}
+          </div>
+        ))}
+
+        <div className="offender-section-title">Court History</div>
+        {!courtHistory && !courtHistoryLoading && (
+          <button onClick={fetchCourtHistory} style={{ width: '100%', padding: 8, background: '#1A2438', border: '1px solid #232D42', color: '#E8ECF3', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>
+            View Court History
+          </button>
+        )}
+        {courtHistoryLoading && <div className="text-muted">Loading court history...</div>}
+        {courtHistory?.cases?.map(c => (
+          <div key={c.caseId} className="court-case-card" style={{ marginTop: 8 }}>
+            <div className="court-case-title">{c.firNumber} — {c.crimeType}
+              <span className="court-status-badge" style={{ background: STATUS_COLORS[c.status] || '#8B96AA', color: '#0F1523' }}>{c.status}</span>
+            </div>
+            {c.hearings.length === 0 && <div className="court-empty-note">No court hearings recorded yet — case is {c.status.toLowerCase()}.</div>}
+            {c.hearings.length > 0 && (
+              <div className="court-timeline">
+                {c.hearings.map((h, i) => (
+                  <div key={i} className="court-timeline-item">
+                    <div className="court-timeline-date">{h.hearingDate}</div>
+                    <div><span className="court-timeline-purpose">{h.purpose}</span> — {h.outcome}</div>
+                    <div style={{ color: '#8B96AA', fontSize: 11 }}>{h.courtName} · {h.judgeName}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {c.disposition && (
+              <div className={`court-disposition-box ${c.disposition.dispositionType === 'Convicted' ? 'convicted' : c.disposition.dispositionType === 'Acquitted' ? 'acquitted' : 'other'}`}>
+                <strong>{c.disposition.dispositionType}</strong> on {c.disposition.dispositionDate}
+                {c.disposition.sentenceDetails && <div style={{ marginTop: 4 }}>{c.disposition.sentenceDetails}</div>}
+              </div>
+            )}
+          </div>
+        ))}
+
+        <div className="offender-section-title">AI Summary</div>
+        {!aiSummary && !aiSummaryLoading && (
+          <button onClick={generateSummary} style={{ width: '100%', padding: 8, background: '#1A2438', border: '1px solid #232D42', color: '#E8ECF3', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>
+            Generate AI Summary
+          </button>
+        )}
+        {aiSummaryLoading && <div className="text-muted">Generating summary...</div>}
+        {aiSummary && <div style={{ fontSize: 12, color: '#C7CEDA', lineHeight: 1.5 }}>{aiSummary}</div>}
+      </div>
+    </div>
+  </div>
+)}
+      </div>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24, background: '#111827', border: '1px solid #232D42', borderRadius: 8, padding: '10px 16px', fontSize: 12, color: '#C7CEDA' }}>
+        <span>Most Connected: <strong style={{ color: '#E8ECF3' }}>{stats.mostConnected?.label || 'N/A'}</strong> {stats.mostConnected ? `(${stats.mostConnected.associateCount} associates)` : ''}</span>
+        <span>Avg Associates: <strong style={{ color: '#E8ECF3' }}>{stats.avgAssociates}</strong></span>
+        <span>Repeat Offender Rate: <strong style={{ color: '#E8ECF3' }}>{stats.repeatOffenderPct}%</strong></span>
+      </div>
+    </div>
+  );
+}
+
+const KB_EXAMPLE_PROMPTS = [
+  "What is the procedure for cyber fraud investigation?",
+  "Which sections apply for vehicle theft?",
+  "Show the SOP for missing person cases.",
+  "What are the guidelines for evidence collection?"
+];
+

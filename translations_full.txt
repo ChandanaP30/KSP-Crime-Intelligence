@@ -1,4 +1,4 @@
-export const translations = {
+﻿export const translations = {
   en: {
     appTitle: 'KSP Crime Intelligence Platform',
     appSubtitle: 'Karnataka State Crime Records Bureau',

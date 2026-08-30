@@ -1,0 +1,208 @@
+﻿
+> src\App.jsx:2009:function PriorityActionPanel({ functionsBase }) {
+  src\App.jsx:2010:  const [data, setData] = useState(null);
+  src\App.jsx:2011:  const [loading, setLoading] = useState(true);
+  src\App.jsx:2012:  const [error, setError] = useState('');
+  src\App.jsx:2013:
+  src\App.jsx:2014:  const loadPriorityActions = async () => {
+  src\App.jsx:2015:    try {
+  src\App.jsx:2016:      setLoading(true);
+  src\App.jsx:2017:      setError('');
+  src\App.jsx:2018:
+  src\App.jsx:2019:      const response = await fetch(
+  src\App.jsx:2020:        `${functionsBase}/priority-action-function/`
+  src\App.jsx:2021:      );
+  src\App.jsx:2022:
+  src\App.jsx:2023:      if (!response.ok) {
+  src\App.jsx:2024:        throw new Error(`Server returned ${response.status}`);
+  src\App.jsx:2025:      }
+  src\App.jsx:2026:
+  src\App.jsx:2027:      const result = await response.json();
+  src\App.jsx:2028:      setData(result);
+  src\App.jsx:2029:    } catch (err) {
+  src\App.jsx:2030:      console.error('Priority Action error:', err);
+  src\App.jsx:2031:      setError(err.message || 'Unable to load priority actions.');
+  src\App.jsx:2032:    } finally {
+  src\App.jsx:2033:      setLoading(false);
+  src\App.jsx:2034:    }
+  src\App.jsx:2035:  };
+  src\App.jsx:2036:
+  src\App.jsx:2037:  useEffect(() => {
+  src\App.jsx:2038:    loadPriorityActions();
+  src\App.jsx:2039:  }, [functionsBase]);
+  src\App.jsx:2040:
+  src\App.jsx:2041:  if (loading) {
+  src\App.jsx:2042:    return (
+  src\App.jsx:2043:      <div className="priority-tab-content">
+  src\App.jsx:2044:        <div className="priority-loading">
+  src\App.jsx:2045:          Loading priority actions...
+  src\App.jsx:2046:        </div>
+  src\App.jsx:2047:      </div>
+  src\App.jsx:2048:    );
+  src\App.jsx:2049:  }
+  src\App.jsx:2050:
+  src\App.jsx:2051:  if (error) {
+  src\App.jsx:2052:    return (
+  src\App.jsx:2053:      <div className="priority-tab-content">
+  src\App.jsx:2054:        <div className="priority-error">
+  src\App.jsx:2055:          <strong>Unable to load Priority Action Center</strong>
+  src\App.jsx:2056:          <p>{error}</p>
+  src\App.jsx:2057:
+  src\App.jsx:2058:          <button onClick={loadPriorityActions}>
+  src\App.jsx:2059:            Retry
+  src\App.jsx:2060:          </button>
+  src\App.jsx:2061:        </div>
+  src\App.jsx:2062:      </div>
+  src\App.jsx:2063:    );
+  src\App.jsx:2064:  }
+  src\App.jsx:2065:
+  src\App.jsx:2066:  const items = data?.items || [];
+  src\App.jsx:2067:  const totalCount = data?.totalItems ?? items.length;
+  src\App.jsx:2068:
+  src\App.jsx:2069:  return (
+  src\App.jsx:2070:    <div className="priority-tab-content">
+  src\App.jsx:2071:
+  src\App.jsx:2072:      <div className="priority-header">
+  src\App.jsx:2073:        <div>
+  src\App.jsx:2074:          <h2>Priority Action Center</h2>
+  src\App.jsx:2075:          <p>
+  src\App.jsx:2076:            AI-assisted identification of cases and operational issues
+  src\App.jsx:2077:            requiring attention.
+  src\App.jsx:2078:          </p>
+  src\App.jsx:2079:        </div>
+  src\App.jsx:2080:
+  src\App.jsx:2081:        <button
+  src\App.jsx:2082:          className="priority-refresh-btn"
+  src\App.jsx:2083:          onClick={loadPriorityActions}
+  src\App.jsx:2084:        >
+  src\App.jsx:2085:          Refresh
+  src\App.jsx:2086:        </button>
+  src\App.jsx:2087:      </div>
+  src\App.jsx:2088:
+  src\App.jsx:2089:      <div className="priority-summary">
+  src\App.jsx:2090:
+  src\App.jsx:2091:        <div className="priority-summary-card">
+  src\App.jsx:2092:          <span>Total Actions</span>
+  src\App.jsx:2093:          <strong>{data?.totalItems ?? 0}</strong>
+  src\App.jsx:2094:        </div>
+  src\App.jsx:2095:
+  src\App.jsx:2096:        <div className="priority-summary-card critical">
+  src\App.jsx:2097:          <span>Critical</span>
+  src\App.jsx:2098:          <strong>{data?.criticalCount ?? 0}</strong>
+  src\App.jsx:2099:        </div>
+  src\App.jsx:2100:
+  src\App.jsx:2101:        <div className="priority-summary-card high">
+  src\App.jsx:2102:          <span>High</span>
+  src\App.jsx:2103:          <strong>{data?.highCount ?? 0}</strong>
+  src\App.jsx:2104:        </div>
+  src\App.jsx:2105:
+  src\App.jsx:2106:      </div>
+  src\App.jsx:2107:
+  src\App.jsx:2108:      {items.length === 0 ? (
+  src\App.jsx:2109:        <div className="priority-empty">
+  src\App.jsx:2110:          <strong>No priority actions detected</strong>
+  src\App.jsx:2111:          <p>
+  src\App.jsx:2112:            The current data does not contain any items requiring
+  src\App.jsx:2113:            immediate attention.
+  src\App.jsx:2114:          </p>
+  src\App.jsx:2115:        </div>
+  src\App.jsx:2116:      ) : (
+  src\App.jsx:2117:        <>
+  src\App.jsx:2118:          <div className="priority-count-line">
+  src\App.jsx:2119:            Showing {items.length} of {totalCount}
+  src\App.jsx:2120:          </div>
+  src\App.jsx:2121:
+  src\App.jsx:2122:          <div className="priority-table-wrapper">
+  src\App.jsx:2123:            <table className="priority-table">
+  src\App.jsx:2124:              <thead>
+  src\App.jsx:2125:                <tr>
+  src\App.jsx:2126:                  <th className="col-num">#</th>
+  src\App.jsx:2127:                  <th className="col-priority">Priority</th>
+  src\App.jsx:2128:                  <th className="col-category">Category</th>
+  src\App.jsx:2129:                  <th className="col-title">Police Unit / Issue</th>
+  src\App.jsx:2130:                  <th className="col-detail">Details</th>
+  src\App.jsx:2131:                  <th className="col-district">District</th>
+  src\App.jsx:2132:                  <th className="col-action">Action</th>
+  src\App.jsx:2133:                </tr>
+  src\App.jsx:2134:              </thead>
+  src\App.jsx:2135:              <tbody>
+  src\App.jsx:2136:                {items.map((item, index) => {
+  src\App.jsx:2137:                  const priorityKey = (item.priority || 'medium').toLowerCase();
+  src\App.jsx:2138:                  return (
+  src\App.jsx:2139:                    <tr
+  src\App.jsx:2140:                      key={`${item.category}-${item.title}-${index}`}
+  src\App.jsx:2141:                      className={`priority-row priority-row-${priorityKey}`}
+  src\App.jsx:2142:                    >
+  src\App.jsx:2143:                      <td className="col-num">{index + 1}</td>
+  src\App.jsx:2144:                      <td className="col-priority">
+  src\App.jsx:2145:                        <span className={`priority-badge 
+priority-badge-${priorityKey}`}>
+  src\App.jsx:2146:                          {item.priority}
+  src\App.jsx:2147:                        </span>
+  src\App.jsx:2148:                      </td>
+  src\App.jsx:2149:                      <td className="col-category">{item.category}</td>
+  src\App.jsx:2150:                      <td className="col-title">{item.title}</td>
+  src\App.jsx:2151:                      <td className="col-detail">{item.detail}</td>
+  src\App.jsx:2152:                      <td className="col-district">{item.district || '\u2014'}</td>
+  src\App.jsx:2153:                      <td className="col-action">{item.linkType || '\u2014'}</td>
+  src\App.jsx:2154:                    </tr>
+  src\App.jsx:2155:                  );
+  src\App.jsx:2156:                })}
+  src\App.jsx:2157:              </tbody>
+  src\App.jsx:2158:            </table>
+  src\App.jsx:2159:          </div>
+  src\App.jsx:2160:        </>
+  src\App.jsx:2161:      )}
+  src\App.jsx:2162:
+  src\App.jsx:2163:      {data?.generatedAt && (
+  src\App.jsx:2164:        <div className="priority-generated">
+  src\App.jsx:2165:          Last updated:{' '}
+  src\App.jsx:2166:          {new Date(data.generatedAt).toLocaleString()}
+  src\App.jsx:2167:        </div>
+  src\App.jsx:2168:      )}
+  src\App.jsx:2169:
+  src\App.jsx:2170:    </div>
+  src\App.jsx:2171:  );
+  src\App.jsx:2172:}
+  src\App.jsx:2173:
+  src\App.jsx:2174:function NetworkGraphPanel({ functionsBase }) {
+  src\App.jsx:2175:  const [rawData, setRawData] = useState(null);
+  src\App.jsx:2176:  const [loading, setLoading] = useState(true);
+  src\App.jsx:2177:  const [selectedOffender, setSelectedOffender] = useState(null);
+  src\App.jsx:2178:   const [showCaseNetwork, setShowCaseNetwork] = useState(false);
+  src\App.jsx:2179:   const [networkView, setNetworkView] = useState('graph'); // 'graph' | 'map'
+  src\App.jsx:2180:  const [showAllLinks, setShowAllLinks] = useState(false);
+  src\App.jsx:2181:  const [districtFilter, setDistrictFilter] = useState('');
+  src\App.jsx:2182:  const [crimeTypeFilter, setCrimeTypeFilter] = useState('');
+  src\App.jsx:2183:  const [yearFilter, setYearFilter] = useState('');
+  src\App.jsx:2184:  const [hideIsolated, setHideIsolated] = useState(false);
+  src\App.jsx:2185:  const [searchTerm, setSearchTerm] = useState('');
+  src\App.jsx:2186:  const [aiSummary, setAiSummary] = useState(null);
+  src\App.jsx:2187:  const [aiSummaryLoading, setAiSummaryLoading] = useState(false);
+  src\App.jsx:2188:  const [courtHistory, setCourtHistory] = useState(null);
+  src\App.jsx:2189:const [courtHistoryLoading, setCourtHistoryLoading] = useState(false);
+  src\App.jsx:2190:const [relatedCasesFilter, setRelatedCasesFilter] = useState(null); // { 
+associateId, associateName, caseIds } | null
+  src\App.jsx:2191:
+  src\App.jsx:2192:  const [highlightNodeIds, setHighlightNodeIds] = useState(null);
+  src\App.jsx:2193:  const [highlightLinkSet, setHighlightLinkSet] = useState(null);
+  src\App.jsx:2194:const [filterWidth, setFilterWidth] = useState(() => {
+  src\App.jsx:2195:    if (typeof window === 'undefined') return 220;
+  src\App.jsx:2196:    const stored = parseInt(localStorage.getItem('ksp-network-filter-width'), 10);
+  src\App.jsx:2197:    return Number.isFinite(stored) ? stored : 220;
+  src\App.jsx:2198:  });
+  src\App.jsx:2199:  const [offenderPanelWidth, setOffenderPanelWidth] = useState(() => {
+  src\App.jsx:2200:    if (typeof window === 'undefined') return 300;
+  src\App.jsx:2201:    const stored = parseInt(localStorage.getItem('ksp-network-offender-width'), 
+10);
+  src\App.jsx:2202:    return Number.isFinite(stored) ? stored : 300;
+  src\App.jsx:2203:  });
+  src\App.jsx:2204:
+  src\App.jsx:2205:  useEffect(() => {
+  src\App.jsx:2206:    try { localStorage.setItem('ksp-network-filter-width', String(filterWidth)); } 
+catch {}
+  src\App.jsx:2207:  }, [filterWidth]);
+  src\App.jsx:2208:
+  src\App.jsx:2209:  useEffect(() => {
+
+

@@ -1,37 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Eye, EyeOff, Lock, ShieldCheck, KeyRound, Loader2, ChevronDown, ChevronUp, ShieldAlert } from 'lucide-react';
-
-/**
- * KSP AI Crime Intelligence Platform — Login Page
- * -------------------------------------------------
- * Standalone component. Does not import or modify anything from the
- * existing dashboard. Mount this at a separate route (e.g. "/login")
- * in your router and call `onAuthenticated(user)` to hand off control
- * to your existing dashboard/session logic.
- *
- * Integration (React Router v6 example):
- *   <Route path="/login" element={<LoginPage onAuthenticated={(u) => navigate('/dashboard')} />} />
- *
- * Replace `fakeAuthenticate()` with your real auth call (e.g. a fetch
- * to your ask-ai-function's sibling auth endpoint, or Catalyst Auth).
- */
-
-
-// Simplified Karnataka state outline (stylized, not survey-accurate) used
-// purely as an atmospheric hero graphic.
-const KARNATAKA_PATH =
-  'M120 24 L166 40 L182 78 L214 86 L230 118 L214 150 L228 176 L212 210 L226 246 L204 284 L214 320 L184 352 L188 388 L152 410 L146 442 L108 452 L86 424 L48 428 L34 396 L54 366 L34 336 L54 302 L38 268 L64 240 L52 204 L76 178 L64 144 L92 118 L82 84 L108 62 Z';
-
-// A handful of fixed "hotspot" points inside the state outline for the
-// radar-sweep signature element (purely decorative, not real data).
-const HOTSPOTS = [
-  { x: 118, y: 120, delay: 0 },
-  { x: 150, y: 200, delay: 0.6 },
-  { x: 90, y: 260, delay: 1.2 },
-  { x: 160, y: 320, delay: 1.8 },
-  { x: 120, y: 380, delay: 2.4 },
-  { x: 190, y: 150, delay: 3.0 },
-];
+import { useState } from 'react';
 
 const FUNCTIONS_BASE = 'https://ksp-fir-platform-60073928681.development.catalystserverless.in/server';
 
@@ -48,21 +15,44 @@ async function authenticate(username, password) {
   return data.user;
 }
 
+// Public-domain national symbol (24-spoke Ashoka Chakra) -- not a copyrighted
+// logo, used the way most Indian government portals use it: as a formal
+// watermark motif, not a literal reproduction of the State seal.
+function AshokaChakra({ size = 40, color = '#0B2F6B' }) {
+  const spokes = Array.from({ length: 24 });
+  return (
+    <svg width={size} height={size} viewBox="0 0 100 100">
+      <circle cx="50" cy="50" r="46" fill="none" stroke={color} strokeWidth="2" />
+      <circle cx="50" cy="50" r="5" fill={color} />
+      {spokes.map((_, i) => {
+        const angle = (i * 360) / 24;
+        const rad = (angle * Math.PI) / 180;
+        const x2 = 50 + 44 * Math.sin(rad);
+        const y2 = 50 - 44 * Math.cos(rad);
+        return <line key={i} x1="50" y1="50" x2={x2} y2={y2} stroke={color} strokeWidth="1.2" />;
+      })}
+    </svg>
+  );
+}
+
+function ShieldIcon({ size = 22, color = '#0B2F6B' }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <path
+        d="M12 2 L21 5.5 V11 C21 16.5 17.4 21 12 22.5 C6.6 21 3 16.5 3 11 V5.5 Z"
+        fill={color}
+      />
+      <path d="M9 12 L11 14 L15.5 9" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+    </svg>
+  );
+}
+
 export default function LoginPage({ onAuthenticated }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [remember, setRemember] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
- 
-  const [mounted, setMounted] = useState(false);
-  const cardRef = useRef(null);
-
-  useEffect(() => {
-    const t = setTimeout(() => setMounted(true), 30);
-    return () => clearTimeout(t);
-  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -82,518 +72,403 @@ export default function LoginPage({ onAuthenticated }) {
     }
   };
 
-  
-
   return (
-    <div className="ksp-login-root">
+    <div className="gov-login-root">
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap');
-
-        .ksp-login-root {
-          --bg-void: #050b16;
-          --bg-panel: #0a1526;
-          --bg-card: rgba(15, 28, 48, 0.58);
-          --border-glass: rgba(148, 176, 214, 0.16);
-          --border-glass-strong: rgba(148, 176, 214, 0.32);
-          --accent-gold: #d4af37;
-          --accent-gold-soft: rgba(212, 175, 55, 0.16);
-          --accent-cyan: #2dd4e0;
-          --text-hi: #eaf0f8;
-          --text-mid: #93a7c4;
-          --text-dim: #5d7091;
-          --danger: #ef7a6b;
-          font-family: 'Inter', system-ui, sans-serif;
+        .gov-login-root {
           min-height: 100vh;
-          width: 100%;
-          background: var(--bg-void);
-          color: var(--text-hi);
-          display: flex;
-          overflow: hidden;
-          position: relative;
-        }
-
-        .ksp-login-root * { box-sizing: border-box; }
-
-        .ksp-heading { font-family: 'Chakra Petch', 'Inter', sans-serif; letter-spacing: 0.01em; }
-        .ksp-mono { font-family: 'JetBrains Mono', monospace; }
-
-        /* ---------- Ambient particles ---------- */
-        .ksp-particles {
-          position: absolute;
-          inset: 0;
-          overflow: hidden;
-          pointer-events: none;
-          z-index: 0;
-        }
-        .ksp-particle {
-          position: absolute;
-          width: 3px;
-          height: 3px;
-          border-radius: 50%;
-          background: var(--accent-cyan);
-          opacity: 0.35;
-          filter: blur(0.5px);
-          animation: ksp-float 14s ease-in-out infinite;
-        }
-        @keyframes ksp-float {
-          0%, 100% { transform: translateY(0) translateX(0); opacity: 0.15; }
-          50% { transform: translateY(-40px) translateX(12px); opacity: 0.55; }
-        }
-
-        /* ---------- Left hero ---------- */
-        .ksp-hero {
-          position: relative;
-          flex: 1.15;
+          background: #0B2F6B;
+          font-family: 'Segoe UI', 'Noto Sans', Arial, sans-serif;
           display: flex;
           flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          padding: 48px;
-          background:
-            radial-gradient(ellipse 900px 700px at 30% 20%, rgba(45, 212, 224, 0.08), transparent 60%),
-            radial-gradient(ellipse 700px 600px at 80% 85%, rgba(212, 175, 55, 0.06), transparent 60%),
-            linear-gradient(160deg, var(--bg-void) 0%, var(--bg-panel) 100%);
-          border-right: 1px solid var(--border-glass);
+        }
+        .gov-tricolor-strip {
+          height: 5px;
+          width: 100%;
+          background: linear-gradient(to right, #FF9933 33.33%, #FFFFFF 33.33%, #FFFFFF 66.66%, #138808 66.66%);
+          flex-shrink: 0;
+        }
+
+        .gov-split {
+          flex: 1;
+          display: flex;
+          min-height: 0;
+        }
+
+        .gov-hero {
+          flex: 1.15;
+          position: relative;
+          display: flex;
+          flex-direction: column;
+          justify-content: space-between;
+          padding: 44px 48px;
+          overflow: hidden;
+          color: #fff;
           min-width: 0;
         }
-        .ksp-hero-grid {
+        .gov-hero-bg {
           position: absolute;
           inset: 0;
-          background-image:
-            linear-gradient(rgba(148,176,214,0.045) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(148,176,214,0.045) 1px, transparent 1px);
-          background-size: 42px 42px;
-          mask-image: radial-gradient(ellipse 70% 70% at 50% 45%, black, transparent);
+          background-image: url('/vidhana-soudha-morning.jpg');
+          background-size: cover;
+          background-position: center 40%;
+          z-index: 0;
         }
-
-        .ksp-map-wrap {
-          position: relative;
-          width: min(360px, 70%);
-          aspect-ratio: 1 / 1.4;
-          margin-bottom: 8px;
+        .gov-hero-scrim {
+          position: absolute;
+          inset: 0;
+          background:
+            linear-gradient(180deg, rgba(6, 22, 56, 0.88) 0%, rgba(8, 30, 74, 0.72) 38%, rgba(11, 47, 107, 0.94) 100%);
           z-index: 1;
         }
-        .ksp-map-svg { width: 100%; height: 100%; overflow: visible; }
-        .ksp-map-outline {
-          fill: rgba(45, 212, 224, 0.05);
-          stroke: var(--accent-cyan);
-          stroke-width: 1.4;
-          stroke-opacity: 0.65;
-          filter: drop-shadow(0 0 14px rgba(45, 212, 224, 0.25));
+        .gov-hero-chakra-watermark {
+          position: absolute;
+          right: -60px;
+          bottom: -60px;
+          opacity: 0.08;
+          z-index: 1;
+          pointer-events: none;
         }
-        .ksp-hotspot { fill: var(--accent-gold); }
-        .ksp-hotspot-ring {
-          fill: none;
-          stroke: var(--accent-gold);
-          stroke-width: 1.2;
-          transform-origin: center;
-          animation: ksp-pulse 3s ease-out infinite;
+        .gov-hero-content {
+          position: relative;
+          z-index: 2;
         }
-        @keyframes ksp-pulse {
-          0% { r: 3; opacity: 0.9; stroke-width: 1.4; }
-          100% { r: 16; opacity: 0; stroke-width: 0.3; }
-        }
-        .ksp-sweep-group { transform-origin: 128px 236px; animation: ksp-rotate 5.5s linear infinite; }
-        @keyframes ksp-rotate { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-
-        .ksp-hero-badge {
+        .gov-hero-top {
           display: flex;
           align-items: center;
-          gap: 10px;
-          padding: 7px 16px 7px 10px;
-          border: 1px solid var(--border-glass-strong);
-          border-radius: 999px;
-          background: rgba(10, 21, 38, 0.5);
-          margin-bottom: 28px;
-          z-index: 1;
+          gap: 14px;
         }
-        .ksp-hero-badge-dot {
-          width: 7px; height: 7px; border-radius: 50%;
-          background: var(--accent-cyan);
-          box-shadow: 0 0 8px var(--accent-cyan);
-          animation: ksp-blink 2s ease-in-out infinite;
+        .gov-hero-top img {
+          width: 52px;
+          height: 52px;
+          border-radius: 8px;
+          box-shadow: 0 4px 14px rgba(0,0,0,0.35);
+          background: #fff;
+          padding: 3px;
         }
-        @keyframes ksp-blink { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
-        .ksp-hero-badge span { font-size: 12px; letter-spacing: 0.09em; color: var(--text-mid); text-transform: uppercase; }
-
-        .ksp-hero-tagline {
-          z-index: 1;
-          text-align: center;
-          max-width: 420px;
-          margin-top: 18px;
+        .gov-hero-eyebrow {
+          font-size: 11.5px;
+          letter-spacing: 1.2px;
+          text-transform: uppercase;
+          color: #D4A017;
+          font-weight: 700;
+          margin: 0 0 2px;
         }
-        .ksp-hero-tagline h2 {
-          font-size: 22px;
-          font-weight: 600;
-          color: var(--text-hi);
-          margin: 0 0 10px;
+        .gov-hero-top h1 {
+          margin: 0;
+          font-size: 19px;
+          font-weight: 700;
+          letter-spacing: 0.2px;
         }
-        .ksp-hero-tagline p {
+        .gov-hero-kannada {
+          font-size: 12.5px;
+          color: #C9D6EC;
+          margin-top: 2px;
+        }
+        .gov-hero-mid {
+          position: relative;
+          z-index: 2;
+          margin-top: 40px;
+        }
+        .gov-hero-mid h2 {
+          font-size: 34px;
+          line-height: 1.22;
+          font-weight: 700;
+          margin: 0 0 14px;
+          max-width: 460px;
+          letter-spacing: 0.1px;
+        }
+        .gov-hero-mid p {
           font-size: 14.5px;
-          line-height: 1.65;
-          color: var(--text-mid);
+          line-height: 1.6;
+          color: #D6E0F2;
+          max-width: 420px;
           margin: 0;
         }
-
-        .ksp-hero-stats {
-          z-index: 1;
+        .gov-hero-stats {
           display: flex;
-          gap: 28px;
-          margin-top: 36px;
-          padding-top: 24px;
-          border-top: 1px solid var(--border-glass);
+          gap: 32px;
+          margin-top: 32px;
         }
-        .ksp-hero-stat { text-align: center; }
-        .ksp-hero-stat b {
-          display: block;
-          font-family: 'Chakra Petch', sans-serif;
-          font-size: 20px;
-          color: var(--accent-cyan);
+        .gov-hero-stat-value {
+          font-size: 22px;
+          font-weight: 700;
+          color: #fff;
         }
-        .ksp-hero-stat span { font-size: 10.5px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.08em; }
+        .gov-hero-stat-label {
+          font-size: 11.5px;
+          color: #9FB2D4;
+          margin-top: 2px;
+          letter-spacing: 0.3px;
+        }
+        .gov-hero-bottom {
+          position: relative;
+          z-index: 2;
+          font-size: 11.5px;
+          color: #9FB2D4;
+          border-top: 1px solid rgba(255,255,255,0.15);
+          padding-top: 16px;
+          line-height: 1.6;
+        }
 
-        /* ---------- Right panel ---------- */
-        .ksp-panel {
+        .gov-panel {
           flex: 1;
-          min-width: 380px;
+          background: #F4F6F9;
           display: flex;
           align-items: center;
           justify-content: center;
-          padding: 40px 32px;
-          position: relative;
-          overflow-y: auto;
+          padding: 32px 40px;
+          min-width: 380px;
         }
-
-        .ksp-card {
-          position: relative;
+        .gov-card {
+          background: #fff;
+          border: 1px solid #D7DCE3;
+          border-radius: 6px;
+          box-shadow: 0 8px 28px rgba(11, 47, 107, 0.10);
           width: 100%;
-          max-width: 400px;
-          background: var(--bg-card);
-          border: 1px solid var(--border-glass);
-          border-radius: 20px;
-          padding: 36px 32px 28px;
-          backdrop-filter: blur(20px);
-          -webkit-backdrop-filter: blur(20px);
-          box-shadow: 0 20px 60px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04);
-          opacity: 0;
-          transform: translateY(14px);
-          transition: opacity 0.6s ease, transform 0.6s ease;
+          max-width: 380px;
+          overflow: hidden;
         }
-        .ksp-card.mounted { opacity: 1; transform: translateY(0); }
-
-        .ksp-logo-row { display: flex; flex-direction: column; align-items: center; margin-bottom: 22px; }
-        .ksp-logo-badge {
-          width: 56px; height: 56px;
-          border-radius: 14px;
-          display: flex; align-items: center; justify-content: center;
-          background: linear-gradient(145deg, rgba(212,175,55,0.18), rgba(212,175,55,0.04));
-          border: 1px solid rgba(212,175,55,0.4);
-          margin-bottom: 14px;
+        .gov-card-top {
+          background: #F4F6F9;
+          border-bottom: 1px solid #D7DCE3;
+          padding: 26px 30px 20px;
+          text-align: center;
         }
-        .ksp-title { font-size: 17px; font-weight: 700; text-align: center; line-height: 1.35; margin: 0; }
-        .ksp-title small { display: block; font-size: 12.5px; font-weight: 500; color: var(--accent-cyan); letter-spacing: 0.03em; margin-top: 2px; }
-        .ksp-subtitle { font-size: 12.5px; color: var(--text-dim); text-align: center; margin: 8px 0 0; }
-
-        .ksp-field { margin-bottom: 16px; }
-        .ksp-field label {
-          display: block; font-size: 11.5px; font-weight: 600; letter-spacing: 0.05em;
-          text-transform: uppercase; color: var(--text-mid); margin-bottom: 7px;
+        .gov-card-top h2 {
+          margin: 12px 0 3px;
+          font-size: 17px;
+          color: #0B2F6B;
+          font-weight: 700;
         }
-        .ksp-input-wrap { position: relative; }
-        .ksp-input-wrap input {
-          width: 100%;
-          padding: 12px 14px;
-          background: rgba(5, 11, 22, 0.55);
-          border: 1px solid var(--border-glass);
-          border-radius: 11px;
-          color: var(--text-hi);
-          font-size: 14px;
-          font-family: 'Inter', sans-serif;
-          outline: none;
-          transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        .gov-card-top p {
+          margin: 0;
+          font-size: 12px;
+          color: #5A6472;
         }
-        .ksp-input-wrap input::placeholder { color: var(--text-dim); }
-        .ksp-input-wrap input:focus {
-          border-color: var(--accent-cyan);
-          box-shadow: 0 0 0 3px rgba(45, 212, 224, 0.14);
+        .gov-card-body {
+          padding: 26px 30px 30px;
         }
-        .ksp-input-wrap.has-icon input { padding-right: 42px; }
-        .ksp-eye-btn {
-          position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
-          background: none; border: none; color: var(--text-dim); cursor: pointer;
-          display: flex; padding: 4px; border-radius: 6px;
-        }
-        .ksp-eye-btn:hover { color: var(--text-mid); }
-
-        .ksp-row-between { display: flex; align-items: center; justify-content: space-between; margin: 4px 0 20px; }
-        .ksp-remember { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--text-mid); cursor: pointer; user-select: none; }
-        .ksp-remember input { accent-color: var(--accent-cyan); width: 14px; height: 14px; cursor: pointer; }
-        .ksp-forgot { font-size: 12.5px; color: var(--accent-cyan); text-decoration: none; background: none; border: none; cursor: pointer; padding: 0; }
-        .ksp-forgot:hover { text-decoration: underline; }
-
-        .ksp-error {
-          display: flex; align-items: center; gap: 8px;
-          background: rgba(239, 122, 107, 0.1);
-          border: 1px solid rgba(239, 122, 107, 0.35);
-          color: var(--danger);
-          font-size: 12.5px;
-          padding: 9px 12px;
-          border-radius: 9px;
+        .gov-field {
           margin-bottom: 16px;
         }
-
-        .ksp-submit {
+        .gov-field label {
+          display: block;
+          font-size: 12.5px;
+          font-weight: 600;
+          color: #2A3140;
+          margin-bottom: 6px;
+        }
+        .gov-input-wrap {
+          position: relative;
+        }
+        .gov-field input {
           width: 100%;
-          padding: 13px;
+          box-sizing: border-box;
+          padding: 10px 12px;
+          border: 1px solid #C6CCD6;
+          border-radius: 4px;
+          font-size: 14px;
+          color: #1A1F2B;
+          background: #fff;
+          transition: border-color 0.15s, box-shadow 0.15s;
+        }
+        .gov-field input:focus {
+          outline: none;
+          border-color: #0B2F6B;
+          box-shadow: 0 0 0 3px rgba(11,47,107,0.12);
+        }
+        .gov-show-pass {
+          position: absolute;
+          right: 10px;
+          top: 50%;
+          transform: translateY(-50%);
+          background: none;
           border: none;
-          border-radius: 11px;
-          background: linear-gradient(135deg, var(--accent-cyan), #1a8f99);
-          color: #04141a;
-          font-size: 14.5px;
-          font-weight: 700;
-          font-family: 'Inter', sans-serif;
-          letter-spacing: 0.01em;
+          color: #5A6472;
+          font-size: 11.5px;
           cursor: pointer;
-          display: flex; align-items: center; justify-content: center; gap: 8px;
-          transition: filter 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
-          box-shadow: 0 8px 24px rgba(45, 212, 224, 0.22);
+          font-weight: 600;
         }
-        .ksp-submit:hover:not(:disabled) { filter: brightness(1.08); transform: translateY(-1px); box-shadow: 0 10px 28px rgba(45, 212, 224, 0.32); }
-        .ksp-submit:disabled { opacity: 0.75; cursor: not-allowed; }
-        .ksp-spin { animation: ksp-spin 0.8s linear infinite; }
-        @keyframes ksp-spin { to { transform: rotate(360deg); } }
-
-        .ksp-security-row {
-          display: flex; justify-content: space-between;
-          margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--border-glass);
+        .gov-show-pass:focus-visible,
+        .gov-field input:focus-visible,
+        .gov-submit:focus-visible {
+          outline: 2px solid #0B2F6B;
+          outline-offset: 2px;
         }
-        .ksp-security-item { display: flex; flex-direction: column; align-items: center; gap: 5px; flex: 1; }
-        .ksp-security-item span { font-size: 9.5px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; text-align: center; }
-        .ksp-security-item svg { color: var(--accent-gold); opacity: 0.85; }
-
-        .ksp-notice {
+        .gov-error {
+          background: #FDECEC;
+          border: 1px solid #F2B8B8;
+          color: #A02A2A;
+          font-size: 12.5px;
+          padding: 9px 12px;
+          border-radius: 4px;
+          margin-bottom: 14px;
+        }
+        .gov-submit {
+          width: 100%;
+          padding: 11px;
+          background: #0B2F6B;
+          color: #fff;
+          border: none;
+          border-radius: 4px;
+          font-size: 14px;
+          font-weight: 700;
+          letter-spacing: 0.3px;
+          cursor: pointer;
+          transition: background 0.15s;
+        }
+        .gov-submit:hover:not(:disabled) {
+          background: #0E3A85;
+        }
+        .gov-submit:disabled {
+          opacity: 0.65;
+          cursor: not-allowed;
+        }
+        .gov-notice {
           margin-top: 16px;
           font-size: 11px;
-          line-height: 1.5;
-          color: var(--text-dim);
+          color: #7A8290;
           text-align: center;
-          padding: 0 4px;
+          line-height: 1.5;
+          border-top: 1px solid #EDEFF2;
+          padding-top: 14px;
+        }
+        .gov-footer {
+          text-align: center;
+          font-size: 11.5px;
+          color: #C9D6EC;
+          padding: 14px;
+          flex-shrink: 0;
+          background: #0B2F6B;
         }
 
-        .ksp-demo-toggle {
-          margin-top: 18px;
-          width: 100%;
-          display: flex; align-items: center; justify-content: center; gap: 6px;
-          background: none; border: 1px dashed var(--border-glass-strong);
-          border-radius: 10px; padding: 9px;
-          color: var(--text-mid); font-size: 11.5px; cursor: pointer;
-          transition: border-color 0.2s ease, color 0.2s ease;
+        @media (prefers-reduced-motion: no-preference) {
+          .gov-card { animation: gov-card-in 0.4s ease-out; }
+          @keyframes gov-card-in {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+          }
         }
-        .ksp-demo-toggle:hover { border-color: var(--accent-gold); color: var(--accent-gold); }
 
-        .ksp-demo-list { display: grid; gap: 8px; margin-top: 12px; overflow: hidden; }
-        .ksp-demo-card {
-          display: flex; align-items: center; justify-content: space-between;
-          background: rgba(5,11,22,0.5); border: 1px solid var(--border-glass);
-          border-radius: 9px; padding: 9px 12px; cursor: pointer;
-          transition: border-color 0.2s ease, background 0.2s ease;
-        }
-        .ksp-demo-card:hover { border-color: var(--accent-gold-soft); background: rgba(212,175,55,0.05); }
-        .ksp-demo-role { font-size: 12px; font-weight: 600; color: var(--text-hi); }
-        .ksp-demo-creds { font-size: 10.5px; color: var(--text-dim); margin-top: 1px; }
-
-        .ksp-footer { margin-top: 22px; text-align: center; font-size: 10.5px; color: var(--text-dim); }
-
-        @media (max-width: 900px) {
-          .ksp-login-root { flex-direction: column; overflow-y: auto; }
-          .ksp-hero { flex: none; padding: 36px 24px 28px; border-right: none; border-bottom: 1px solid var(--border-glass); }
-          .ksp-map-wrap { width: 220px; }
-          .ksp-hero-stats { margin-top: 24px; gap: 20px; }
-          .ksp-panel { min-width: 0; padding: 28px 20px 40px; }
+        @media (max-width: 860px) {
+          .gov-split { flex-direction: column; }
+          .gov-hero { padding: 32px 24px; min-height: 280px; }
+          .gov-hero-mid h2 { font-size: 26px; }
+          .gov-hero-stats { display: none; }
+          .gov-panel { min-width: 0; padding: 28px 20px; }
         }
       `}</style>
 
-      <div className="ksp-particles">
-        {Array.from({ length: 22 }).map((_, i) => (
-          <span
-            key={i}
-            className="ksp-particle"
-            style={{
-              left: `${(i * 37) % 100}%`,
-              top: `${(i * 53) % 100}%`,
-              animationDelay: `${(i % 7) * 1.3}s`,
-              animationDuration: `${10 + (i % 6) * 2}s`,
-            }}
-          />
-        ))}
-      </div>
+      <div className="gov-tricolor-strip" />
 
-      {/* ---------------- Left hero ---------------- */}
-      <div className="ksp-hero">
-        <div className="ksp-hero-grid" />
-
-        <div className="ksp-hero-badge">
-          <span className="ksp-hero-badge-dot" />
-          <span>Live Crime Intelligence Grid</span>
-        </div>
-
-        <div className="ksp-map-wrap">
-          <svg className="ksp-map-svg" viewBox="0 0 260 480">
-            <path className="ksp-map-outline" d={KARNATAKA_PATH} />
-            <g className="ksp-sweep-group">
-              <path
-                d="M128 236 L128 60 A176 176 0 0 1 250 200 Z"
-                fill="url(#sweepGradient)"
-                opacity="0.5"
-              />
-            </g>
-            <defs>
-              <radialGradient id="sweepGradient" cx="30%" cy="30%" r="80%">
-                <stop offset="0%" stopColor="#2dd4e0" stopOpacity="0.55" />
-                <stop offset="100%" stopColor="#2dd4e0" stopOpacity="0" />
-              </radialGradient>
-            </defs>
-            {HOTSPOTS.map((h, i) => (
-              <g key={i}>
-                <circle cx={h.x} cy={h.y} r="2.5" className="ksp-hotspot" />
-                <circle
-                  cx={h.x}
-                  cy={h.y}
-                  r="3"
-                  className="ksp-hotspot-ring"
-                  style={{ animationDelay: `${h.delay}s` }}
-                />
-              </g>
-            ))}
-          </svg>
-        </div>
-
-        <div className="ksp-hero-tagline">
-          <h2 className="ksp-heading">Intelligence-led policing, statewide.</h2>
-          <p>
-            Real-time crime pattern analysis, CCTV coverage mapping, and
-            AI-assisted case insight — built for the officers of Karnataka.
-          </p>
-        </div>
-
-        <div className="ksp-hero-stats">
-          <div className="ksp-hero-stat"><b>31</b><span>Districts</span></div>
-          <div className="ksp-hero-stat"><b>24×7</b><span>Monitoring</span></div>
-          <div className="ksp-hero-stat"><b>AI</b><span>Assisted</span></div>
-        </div>
-      </div>
-
-      {/* ---------------- Right login panel ---------------- */}
-      <div className="ksp-panel">
-        <div ref={cardRef} className={`ksp-card ${mounted ? 'mounted' : ''}`}>
-          <div className="ksp-logo-row">
-            <div className="ksp-logo-badge">
-              <ShieldCheck size={28} color="#d4af37" strokeWidth={1.8} />
-            </div>
-            <h1 className="ksp-title ksp-heading">
-              Karnataka State Police
-              <small>AI Crime Intelligence Platform</small>
-            </h1>
-            <p className="ksp-subtitle">Secure access for authorized personnel only.</p>
+      <div className="gov-split">
+        <div className="gov-hero">
+          <div className="gov-hero-bg" />
+          <div className="gov-hero-scrim" />
+          <div className="gov-hero-chakra-watermark">
+            <AshokaChakra size={280} color="#ffffff" />
           </div>
 
-          <form onSubmit={handleSubmit} noValidate>
-            <div className="ksp-field">
-              <label htmlFor="ksp-username">
-  Badge ID
-  <span> / ಬ್ಯಾಡ್ಜ್ ಐಡಿ</span>
-</label>
-              <div className="ksp-input-wrap">
-                <input
-                  id="ksp-username"
-                  type="text"
-                  autoComplete="username"
-                  placeholder="e.g. officer"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                />
+          <div className="gov-hero-content gov-hero-top">
+            <img src="/apple-touch-icon.png" alt="Karnataka State Police" />
+            <div>
+              <p className="gov-hero-eyebrow">Government of Karnataka</p>
+              <h1>Karnataka State Police</h1>
+              <div className="gov-hero-kannada">ಕರ್ನಾಟಕ ರಾಜ್ಯ ಪೊಲೀಸ್ | ಅಪರಾಧ ದಾಖಲೆಗಳ ವಿಭಾಗ</div>
+            </div>
+          </div>
+
+          <div className="gov-hero-mid">
+            <h2>AI Crime Intelligence Platform</h2>
+            <p>
+              A unified system for the Karnataka State Crime Records Bureau to track FIRs,
+              map crime hotspots, coordinate patrol deployment, and support investigations
+              across all districts.
+            </p>
+            <div className="gov-hero-stats">
+              <div>
+                <div className="gov-hero-stat-value">31</div>
+                <div className="gov-hero-stat-label">Districts Covered</div>
+              </div>
+              <div>
+                <div className="gov-hero-stat-value">24×7</div>
+                <div className="gov-hero-stat-label">Monitoring</div>
+              </div>
+              <div>
+                <div className="gov-hero-stat-value">Real-time</div>
+                <div className="gov-hero-stat-label">Case Intelligence</div>
               </div>
             </div>
+          </div>
 
-            <div className="ksp-field">
-              <label htmlFor="ksp-password">Password</label>
-              <div className="ksp-input-wrap has-icon">
-                <input
-                  id="ksp-password"
-                  type={showPassword ? 'text' : 'password'}
-                  autoComplete="current-password"
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-                <button
-                  type="button"
-                  className="ksp-eye-btn"
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
-                  onClick={() => setShowPassword((s) => !s)}
-                >
-                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+          <div className="gov-hero-bottom">
+            Vidhana Soudha, Bengaluru — Seat of the Government of Karnataka
+          </div>
+        </div>
+
+        <div className="gov-panel">
+          <div className="gov-card">
+            <div className="gov-card-top">
+              <ShieldIcon size={30} />
+              <h2>Secure Sign In</h2>
+              <p>Authorised personnel only</p>
+            </div>
+
+            <div className="gov-card-body">
+              {error && <div className="gov-error" role="alert">{error}</div>}
+
+              <form onSubmit={handleSubmit}>
+                <div className="gov-field">
+                  <label htmlFor="gov-username">Username / Officer ID</label>
+                  <input
+                    id="gov-username"
+                    type="text"
+                    value={username}
+                    onChange={e => setUsername(e.target.value)}
+                    autoComplete="username"
+                    autoFocus
+                  />
+                </div>
+
+                <div className="gov-field">
+                  <label htmlFor="gov-password">Password</label>
+                  <div className="gov-input-wrap">
+                    <input
+                      id="gov-password"
+                      type={showPassword ? 'text' : 'password'}
+                      value={password}
+                      onChange={e => setPassword(e.target.value)}
+                      autoComplete="current-password"
+                    />
+                    <button
+                      type="button"
+                      className="gov-show-pass"
+                      onClick={() => setShowPassword(s => !s)}
+                      tabIndex={-1}
+                    >
+                      {showPassword ? 'HIDE' : 'SHOW'}
+                    </button>
+                  </div>
+                </div>
+
+                <button type="submit" className="gov-submit" disabled={loading}>
+                  {loading ? 'Verifying...' : 'Sign In'}
                 </button>
+              </form>
+
+              <div className="gov-notice">
+                This is a Government of Karnataka system. Unauthorised access or use is prohibited
+                and liable to prosecution under applicable law. All activity may be monitored and logged.
               </div>
             </div>
-
-            <div className="ksp-row-between">
-              <label className="ksp-remember">
-                <input
-                  type="checkbox"
-                  checked={remember}
-                  onChange={(e) => setRemember(e.target.checked)}
-                />
-                Remember me
-              </label>
-              <button type="button" className="ksp-forgot" onClick={() => {}}>
-                Forgot password?
-              </button>
-            </div>
-
-            {error && (
-              <div className="ksp-error">
-                <ShieldAlert size={14} />
-                {error}
-              </div>
-            )}
-
-            <button type="submit" className="ksp-submit" disabled={loading}>
-              {loading ? (
-                <>
-                  <Loader2 size={17} className="ksp-spin" />
-                  Signing in…
-                </>
-              ) : (
-                'Sign In'
-              )}
-            </button>
-          </form>
-
-          <div className="ksp-security-row">
-            <div className="ksp-security-item">
-              <Lock size={16} />
-              <span>Secure Login</span>
-            </div>
-            <div className="ksp-security-item">
-              <ShieldCheck size={16} />
-              <span>Role-Based Access</span>
-            </div>
-            <div className="ksp-security-item">
-              <KeyRound size={16} />
-              <span>Encrypted Connection</span>
-            </div>
-          </div>
-
-          <p className="ksp-notice">
-            Authorized personnel only. Unauthorized access is prohibited and monitored.
-          </p>
-
-          <div className="ksp-footer">
-            © 2026 Karnataka State Police | AI Crime Intelligence Platform
           </div>
         </div>
       </div>
+
+      <footer className="gov-footer">
+        © Government of Karnataka | Karnataka State Police | Department of Home Affairs
+      </footer>
     </div>
   );
 }

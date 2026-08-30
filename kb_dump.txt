@@ -1,0 +1,228 @@
+﻿function KnowledgeBasePanel({ functionsBase, lang }) {
+  const [documents, setDocuments] = useState([]);
+  const [loadingDocs, setLoadingDocs] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState(null);
+  const fileInputRef = useRef(null);
+
+  const [question, setQuestion] = useState('');
+  const [asking, setAsking] = useState(false);
+  const [answer, setAnswer] = useState(null);
+  const [kbListening, setKbListening] = useState(false);
+  const kbRecognitionRef = useRef(null);
+const utteranceRef = useRef(null);
+
+  const startKbVoiceInput = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert('Voice input is not supported in this browser. Try Chrome.');
+      return;
+    }
+    const recognition = new SpeechRecognition();
+    recognition.lang = lang === 'kn' ? 'kn-IN' : 'en-IN';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => setKbListening(true);
+    recognition.onend = () => setKbListening(false);
+    recognition.onerror = (event) => {
+      setKbListening(false);
+      console.error('KB speech recognition error:', event.error, event);
+      alert(`Voice input error: ${event.error}`);
+    };
+    recognition.onresult = (event) => {
+      const transcript = event.results[0][0].transcript;
+      setQuestion(transcript);
+    };
+
+    kbRecognitionRef.current = recognition;
+    recognition.start();
+  };
+
+  const stopKbVoiceInput = () => {
+    kbRecognitionRef.current?.stop();
+    setKbListening(false);
+  };
+
+  const refreshDocuments = () => {
+    setLoadingDocs(true);
+    fetch(`${functionsBase}/kb-function/?mode=list`)
+      .then(res => res.json())
+      .then(data => {
+        setDocuments(data.documents || []);
+        setLoadingDocs(false);
+      })
+      .catch(err => {
+        console.error('KB document list error:', err);
+        setLoadingDocs(false);
+      });
+  };
+
+  useEffect(() => { refreshDocuments(); }, [functionsBase]);
+
+  const handleFileSelect = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    setUploadError(null);
+    setUploading(true);
+
+    for (const file of files) {
+      const ext = file.name.split('.').pop().toLowerCase();
+      if (!['pdf', 'docx', 'txt'].includes(ext)) {
+        setUploadError(`"${file.name}" is not a supported file type. Only PDF, DOCX, and TXT are supported.`);
+        continue;
+      }
+      try {
+        const base64 = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result.split(',')[1]);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+
+        const res = await fetch(`${functionsBase}/kb-function/?mode=upload`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileName: file.name, fileType: ext, fileBase64: base64 })
+        });
+        const data = await res.json();
+        if (data.error) setUploadError(data.error);
+      } catch (err) {
+        setUploadError(`Failed to upload "${file.name}": ${err.message}`);
+      }
+    }
+
+    setUploading(false);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    refreshDocuments();
+  };
+
+  const handleDelete = (documentId) => {
+    fetch(`${functionsBase}/kb-function/?mode=delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ documentId })
+    })
+      .then(res => res.json())
+      .then(() => refreshDocuments())
+      .catch(err => console.error('KB delete error:', err));
+  };
+
+  const handleAsk = (q) => {
+    const finalQuestion = q || question;
+    if (!finalQuestion.trim()) return;
+    setAsking(true);
+    setAnswer(null);
+    fetch(`${functionsBase}/kb-function/?mode=query`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: finalQuestion, preferredLang: lang })
+    })
+      .then(res => res.json())
+      .then(data => {
+        setAnswer(data);
+        setAsking(false);
+      })
+      .catch(err => {
+        console.error('KB query error:', err);
+        setAnswer({ answer: 'Something went wrong. Please try again.', groundedInKB: false, citations: [] });
+        setAsking(false);
+      });
+  };
+
+  return (
+    <div className="kb-panel">
+      <div className="kb-upload-section">
+        <h3>Upload Police Documents</h3>
+        <p className="kb-subtext">SOPs, IPC/BNS sections, circulars, investigation manuals, cybercrime guidelines, and departmental policies. Supported formats: PDF, DOCX, TXT.</p>
+
+        <input
+          type="file"
+          ref={fileInputRef}
+          multiple
+          accept=".pdf,.docx,.txt"
+          onChange={handleFileSelect}
+          style={{ display: 'none' }}
+        />
+        <button className="kb-upload-btn" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+          {uploading ? 'Uploading...' : 'ðŸ“ Upload Documents'}
+
+        </button>
+        {uploadError && <div className="kb-upload-error">{uploadError}</div>}
+
+        <div className="kb-doc-list">
+          <div className="kb-doc-list-header">
+            <span>Uploaded Documents</span>
+            <span className="kb-doc-count">{documents.length} indexed</span>
+          </div>
+          {loadingDocs && <div className="kb-doc-loading">Loading...</div>}
+          {!loadingDocs && documents.length === 0 && (
+            <div className="kb-doc-empty">No documents uploaded yet. Upload an SOP, manual, or circular to get started.</div>
+          )}
+          {documents.map(doc => (
+            <div className="kb-doc-item" key={doc.id}>
+              <div className="kb-doc-info">
+                <div className="kb-doc-name">{doc.name}</div>
+                <div className="kb-doc-meta">
+                  {doc.fileType.toUpperCase()} - {formatFileSize(doc.fileSizeBytes)} - {new Date(doc.uploadedDate).toLocaleDateString()} - {doc.chunkCount} chunks
+                </div>
+              </div>
+              <button className="kb-doc-delete" onClick={() => handleDelete(doc.id)} title="Delete document">Del</button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="kb-query-section">
+        <h3>Ask the Knowledge Base</h3>
+        <p className="kb-subtext">Answers come only from your uploaded documents -- not general knowledge. Supports English and Kannada.</p>
+
+        <div className="kb-example-prompts">
+          {KB_EXAMPLE_PROMPTS.map((p, i) => (
+            <button key={i} className="kb-example-chip" onClick={() => { setQuestion(p); handleAsk(p); }}>{p}</button>
+          ))}
+        </div>
+
+       <div className="kb-query-input-row">
+          <textarea
+            className="kb-query-input"
+            placeholder="Ask a question about your uploaded documents..."
+            value={question}
+            onChange={e => setQuestion(e.target.value)}
+            rows={2}
+          />
+          <button
+            className={`kb-mic-btn ${kbListening ? 'mic-active' : ''}`}
+            type="button"
+            title={kbListening ? 'Listening...' : 'Voice input'}
+            onClick={kbListening ? stopKbVoiceInput : startKbVoiceInput}
+          >
+            {kbListening ? 'ðŸ”´' : 'ðŸŽ¤'}
+          </button>
+          <button className="kb-query-submit" onClick={() => handleAsk()} disabled={asking || !question.trim()}>
+            {asking ? 'Searching...' : 'Ask'}
+          </button>
+        </div>
+
+        {answer && (
+          <div className="kb-answer-card">
+            {answer.groundedInKB && (
+              <div className="kb-grounded-badge">ðŸ“š Answer generated from Police Knowledge Base</div>
+            )}
+            <div className="kb-answer-text">{answer.answer}</div>
+            {answer.citations && answer.citations.length > 0 && (
+              <div className="kb-citations">
+                <div className="kb-citations-label">Sources</div>
+                {answer.citations.map((c, i) => (
+                  <div className="kb-citation-item" key={i}>{c.documentName} - {c.source}</div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default App;

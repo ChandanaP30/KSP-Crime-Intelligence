@@ -1,0 +1,120 @@
+﻿3416:                     >-</button>
+3417:                     <button
+3418:                       onClick={() => fgRef.current && fgRef.current.zoomToFit(500, 70)}
+3419:                       style={{ width: 30, height: 30, background: '#111827', border: '1px solid #33415C', color: '#E8ECF3', borderRadius: 5, cursor: 'pointer', fontSize: 13 }}
+3420:                                         >/</button>
+3421:                   </div>
+3422: 
+3423:                   {quickInfoOffender && !selectedOffender && (
+3424:                     <div style={{
+3425:                       position: 'absolute', top: 60, right: 10, zIndex: 10,
+3426:                       width: 240, background: '#111827',
+3427:                       border: '1px solid #D9A441', borderRadius: 8, padding: 12,
+3428:                       boxShadow: '0 8px 24px rgba(0,0,0,0.5)'
+3429:                     }}>
+3430:                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+3431:                         <div style={{ fontSize: 13, fontWeight: 700, color: '#F0F3F8' }}>{quickInfoOffender.label}</div>
+3432:                         <button onClick={() => setQuickInfoOffender(null)} style={{ background: 'none', border: 'none', color: '#8B96AA', cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: 0 }}>&times;</button>
+3433:                       </div>
+3434:                       <div style={{ fontSize: 11, color: '#D9A441', fontWeight: 600, marginTop: 2 }}>Risk {quickInfoOffender.riskScore}/100</div>
+3435:                       <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11.5 }}>
+3436:                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+3437:                           <span style={{ color: '#8B96AA' }}>Linked Cases</span>
+3438:                           <span style={{ color: '#E8ECF3', fontWeight: 600 }}>{quickInfoOffender.caseCount}</span>
+3439:                         </div>
+3440:                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+3441:                           <span style={{ color: '#8B96AA' }}>Associates</span>
+3442:                           <span style={{ color: '#E8ECF3', fontWeight: 600 }}>{quickInfoOffender.associateCount}</span>
+3443:                         </div>
+3444:                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+3445:                           <span style={{ color: '#8B96AA' }}>Districts</span>
+3446:                           <span style={{ color: '#E8ECF3', fontWeight: 600, textAlign: 'right' }}>{(quickInfoOffender.districts || []).join(', ') || 'Unknown'}</span>
+3447:                         </div>
+3448:                       </div>
+3449:                       <button
+3450:                         onClick={() => openFullProfile(quickInfoOffender)}
+3451:                         style={{ marginTop: 10, width: '100%', padding: '6px 0', borderRadius: 6, fontSize: 11.5, fontWeight: 600, background: 'var(--accent)', color: '#fff', border: 'none', cursor: 'pointer' }}
+3452:                       >
+3453:                         View History
+3454:                       </button>
+3455:                     </div>
+3456:                   )}
+3457: 
+3458:                   <ForceGraph2D
+3459:                     ref={fgRef}
+3460:                     graphData={networkViewGraphData}
+3461:                     width={dimensions.width}
+3462:                     height={dimensions.height}
+3463:                     backgroundColor="#0F1523"
+3464:                     nodeRelSize={6}
+3465:                     nodeVal={n =>
+3466:                       n.type === 'offender'
+3467:                         ? Math.max(5, Math.min(16, 5 + (n.associateCount || 0) / 12))
+3468:                         : 3
+3469:                     }
+3470:                     nodeColor={n => {
+3471:                       if (n.id === networkViewGraphData.centerId) return '#F5B942';
+3472:                       if (n.type === 'case') return '#64748B';
+3473:                       return getRiskColor(n.riskScore || 0);
+3474:                     }}
+3475:                     nodeLabel={n =>
+3476:                       n.type === 'offender'
+3477:                         ? `${n.label}   ${n.associateCount || 0} associates   Risk ${n.riskScore || 0}/100`
+3478:                         : `${n.label}   ${n.crimeType || 'Unknown crime'}`
+3479:                     }
+3480:                     nodeCanvasObject={(node, ctx, globalScale) => {
+3481:                       if (node.type === 'case') {
+3482:                         ctx.beginPath();
+3483:                         ctx.arc(node.x, node.y, 3, 0, 2 * Math.PI);
+3484:                         ctx.fillStyle = '#64748B';
+3485:                         ctx.fill();
+3486:                         return;
+3487:                       }
+3488: 
+3489:                       const isCenter = node.id === networkViewGraphData.centerId;
+3490:                       const radius = isCenter
+3491:                         ? 12
+3492:                         : Math.max(5, Math.min(11, 5 + (node.associateCount || 0) / 15));
+3493: 
+3494:                       ctx.beginPath();
+3495:                       ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI);
+3496:                       ctx.fillStyle = isCenter ? '#F5B942' : getRiskColor(node.riskScore || 0);
+3497:                       ctx.fill();
+3498: 
+3499:                       ctx.lineWidth = isCenter ? 3 : 1;
+3500:                       ctx.strokeStyle = isCenter ? '#FFFFFF' : 'rgba(255,255,255,0.25)';
+3501:                       ctx.stroke();
+3502: 
+3503:                       if (globalScale > 0.65 || isCenter) {
+3504:                         const fontSize = isCenter ? 13 / globalScale : 10 / globalScale;
+3505:                         ctx.font = `${isCenter ? '700' : '500'} ${fontSize}px Arial`;
+3506:                         ctx.textAlign = 'center';
+3507:                         ctx.textBaseline = 'top';
+3508: 
+3509:                         const label = node.label && node.label.length > 20
+3510:                           ? node.label.slice(0, 20) + ' '
+3511:                           : node.label;
+3512: 
+3513:                         ctx.fillStyle = '#E8ECF3';
+3514:                         ctx.fillText(label, node.x, node.y + radius + (isCenter ? 5 : 3));
+3515: 
+3516:                         if (isCenter) {
+3517:                           ctx.font = `600 ${10 / globalScale}px Arial`;
+3518:                           ctx.fillStyle = '#F5B942';
+3519:                           ctx.fillText(
+3520:                             `${node.associateCount || 0} associates`,
+3521:                             node.x,
+3522:                             node.y + radius + 18
+3523:                           );
+3524:                         }
+3525:                       }
+3526:                     }}
+3527:                     nodePointerAreaPaint={(node, color, ctx) => {
+3528:                       const radius = node.type === 'offender'
+3529:                         ? (node.id === networkViewGraphData.centerId ? 16 : 12)
+3530:                         : 6;
+3531:                       ctx.fillStyle = color;
+3532:                       ctx.beginPath();
+3533:                       ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI);
+3534:                       ctx.fill();
+3535:                     }}

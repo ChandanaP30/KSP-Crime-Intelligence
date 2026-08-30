@@ -1,0 +1,50 @@
+﻿
+  src\App.jsx:2862:      repeatOffenderPct,
+  src\App.jsx:2863:      mostConnected
+  src\App.jsx:2864:    };
+  src\App.jsx:2865:  }, [rawData, offenderNodes, caseNodesAll, offenderEdgesAll, caseEdgesAll]);
+  src\App.jsx:2866:
+> src\App.jsx:2867:  const handleNodeClick = (node) => {
+  src\App.jsx:2868:    if (node.type !== 'offender') return;
+  src\App.jsx:2869:    setSelectedOffender(node);
+  src\App.jsx:2870:    setAiSummary(null);
+  src\App.jsx:2871:    setCourtHistory(null);
+  src\App.jsx:2872:setCourtHistoryLoading(false);
+  src\App.jsx:2873:
+  src\App.jsx:2874:    const connectedLinks = graphData.links.filter(l => {
+  src\App.jsx:2875:      const sourceId = typeof l.source === 'object' ? l.source.id : l.source;
+  src\App.jsx:2876:      const targetId = typeof l.target === 'object' ? l.target.id : l.target;
+  src\App.jsx:2877:      return sourceId === node.id || targetId === node.id;
+  src\App.jsx:2878:    });
+  src\App.jsx:2879:    const connectedIds = new Set([node.id]);
+  src\App.jsx:2880:    connectedLinks.forEach(l => {
+  src\App.jsx:2881:      const sourceId = typeof l.source === 'object' ? l.source.id : l.source;
+  src\App.jsx:2882:      const targetId = typeof l.target === 'object' ? l.target.id : l.target;
+  src\App.jsx:2883:      connectedIds.add(sourceId);
+  src\App.jsx:2884:      connectedIds.add(targetId);
+  src\App.jsx:2885:    });
+  src\App.jsx:2886:        setHighlightNodeIds(connectedIds);
+  src\App.jsx:2887:    setHighlightLinkSet(new Set(connectedLinks));
+  src\App.jsx:2888:  };
+  src\App.jsx:2889:
+  src\App.jsx:2890:  // Search finds and selects a match (revealing their real connections),
+  src\App.jsx:2891:  // rather than hiding every other offender -- a single isolated match had
+  src\App.jsx:2892:  // no one left to draw a link to.
+  src\App.jsx:2893:  useEffect(() => {
+  src\App.jsx:2894:    if (!searchTerm.trim()) return;
+  src\App.jsx:2895:    const match = offenderNodes.find(n => 
+n.label.toLowerCase().includes(searchTerm.toLowerCase()));
+  src\App.jsx:2896:    if (match) {
+  src\App.jsx:2897:      const graphNode = graphData.nodes.find(n => n.id === match.id);
+  src\App.jsx:2898:      if (graphNode) handleNodeClick(graphNode);
+  src\App.jsx:2899:    }
+  src\App.jsx:2900:  }, [searchTerm]);
+  src\App.jsx:2901:
+  src\App.jsx:2902:  const clearSelection = () => {
+  src\App.jsx:2903:    setSelectedOffender(null);
+  src\App.jsx:2904:    setAiSummary(null);
+  src\App.jsx:2905:    setCourtHistory(null);
+  src\App.jsx:2906:    setCourtHistoryLoading(false);
+  src\App.jsx:2907:    setHighlightNodeIds(null);
+
+
