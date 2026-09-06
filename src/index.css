@@ -1,8 +1,9 @@
-﻿@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
 :root {
   /* Primary Colors - Dark Navy Base */
   --bg: #06091E;
+  --bg-rgb: 6, 9, 30;
   --surface: #0F1527;
   --surface-2: #151D35;
   --surface-3: #1A2442;
@@ -138,6 +139,7 @@ input, select, textarea {
 
 [data-theme="light"] {
   --bg: #F4F6FB;
+  --bg-rgb: 244, 246, 251;
   --surface: #FFFFFF;
   --surface-2: #F1F4FA;
   --surface-3: #E8ECF5;
@@ -162,4 +164,3 @@ input, select, textarea {
   --success: #0E8F63;
   --warning: #B5750A;
 }
-

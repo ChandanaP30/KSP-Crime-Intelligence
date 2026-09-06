@@ -1,0 +1,15 @@
+﻿function KpiCard({ label, value, icon, color }) {
+  return (
+    <div className="kpi-card" style={color ? { '--kpi-accent': color } : undefined}>
+      <div className="kpi-icon-badge">{icon}</div>
+      <div className="kpi-body">
+        <div className="kpi-value mono">{value}</div>
+        <div className="kpi-label">{label}</div>
+      </div>
+    </div>
+  );
+}
+
+function PatrolRecommendationPanel({ functionsBase, districts, initialDistrictId, onViewCases }) {
+  const [selectedDistrict, setSelectedDistrict] = useState(initialDistrictId || '');
+  const [data, setData] = useState(null);

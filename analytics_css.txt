@@ -1,0 +1,319 @@
+﻿
+> src\App.css:185:.kpi-card {
+  src\App.css:186:  flex: 1;
+  src\App.css:187:  min-width: 210px;
+  src\App.css:188:  min-height: 100px;
+  src\App.css:189:  background: var(--surface-2);
+  src\App.css:190:  border: 1px solid var(--border);
+  src\App.css:191:  border-left: 3px solid var(--kpi-accent, var(--accent));
+  src\App.css:192:  border-radius: var(--radius-lg);
+  src\App.css:193:  padding: 16px 18px;
+  src\App.css:194:  position: relative;
+  src\App.css:195:  overflow: hidden;
+> src\App.css:205:.kpi-card:hover {
+  src\App.css:206:  transform: translateY(-3px);
+  src\App.css:207:  border-color: var(--kpi-accent, var(--accent));
+  src\App.css:208:  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.18);
+  src\App.css:209:}
+  src\App.css:210:
+> src\App.css:211:.kpi-icon-badge {
+  src\App.css:212:  width: 40px;
+  src\App.css:213:  height: 40px;
+  src\App.css:214:  flex-shrink: 0;
+  src\App.css:215:  border-radius: var(--radius-md);
+  src\App.css:216:  background: rgba(217, 164, 65, 0.16);
+  src\App.css:217:  background: color-mix(in srgb, var(--kpi-accent, var(--accent)) 18%, transparent);
+  src\App.css:218:  display: flex;
+  src\App.css:219:  align-items: center;
+  src\App.css:220:  justify-content: center;
+  src\App.css:221:  font-size: 19px;
+> src\App.css:224:.kpi-body {
+  src\App.css:225:  display: flex;
+  src\App.css:226:  flex-direction: column;
+  src\App.css:227:  gap: 2px;
+  src\App.css:228:  min-width: 0;
+  src\App.css:229:}
+  src\App.css:230:
+> src\App.css:231:.kpi-value {
+  src\App.css:232:  font-size: 32px;
+  src\App.css:233:  font-weight: 800;
+  src\App.css:234:  letter-spacing: -0.5px;
+  src\App.css:235:  line-height: 1.1;
+  src\App.css:236:  color: var(--text-primary);
+  src\App.css:237:  margin: 0;
+  src\App.css:238:  white-space: nowrap;
+  src\App.css:239:}
+  src\App.css:240:
+> src\App.css:241:.kpi-label {
+  src\App.css:242:  font-size: 10.5px;
+  src\App.css:243:  color: var(--text-muted);
+  src\App.css:244:  text-transform: uppercase;
+  src\App.css:245:  letter-spacing: 0.6px;
+  src\App.css:246:  font-weight: 700;
+  src\App.css:247:  margin: 0;
+  src\App.css:248:}
+  src\App.css:249:/* ============================================
+  src\App.css:250:   MAIN LAYOUT
+  src\App.css:251:   ============================================ */
+> src\App.css:909:.analytics-drawer {
+  src\App.css:910:  display: flex;
+  src\App.css:911:  gap: var(--spacing-md);
+  src\App.css:912:  padding: var(--spacing-lg);
+  src\App.css:913:  background: linear-gradient(180deg, var(--surface) 0%, transparent 100%);
+  src\App.css:914:  border-top: 1px solid var(--border);
+  src\App.css:915:  min-height: 240px;
+  src\App.css:916:  overflow-x: auto;
+  src\App.css:917:}
+  src\App.css:918:
+> src\App.css:919:.analytics-drawer-grid {
+  src\App.css:920:  display: grid;
+  src\App.css:921:  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  src\App.css:922:  gap: var(--spacing-md);
+  src\App.css:923:  padding: 0;
+  src\App.css:924:  background: transparent;
+  src\App.css:925:  animation: slideDown 0.3s ease-out;
+  src\App.css:926:}
+  src\App.css:927:
+> src\App.css:928:.chart-panel {
+  src\App.css:929:  background: linear-gradient(135deg, var(--surface-2) 0%, var(--surface-3) 100%);
+  src\App.css:930:  border: 1px solid var(--border);
+  src\App.css:931:  border-radius: var(--radius-lg);
+  src\App.css:932:  padding: var(--spacing-lg);
+  src\App.css:933:  flex: 1;
+  src\App.css:934:  min-width: 280px;
+  src\App.css:935:  transition: all var(--transition-base);
+  src\App.css:936:  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  src\App.css:937:  cursor: default;
+  src\App.css:938:}
+> src\App.css:940:.chart-panel:hover {
+  src\App.css:941:  border-color: var(--accent);
+  src\App.css:942:  box-shadow: 0 8px 20px rgba(91, 141, 239, 0.18);
+  src\App.css:943:  transform: translateY(-2px);
+  src\App.css:944:  background: linear-gradient(135deg, rgba(91, 141, 239, 0.1) 0%, var(--surface-3) 100%);
+  src\App.css:945:}
+  src\App.css:946:/* ============================================================================
+  src\App.css:947:   ANALYTICS SUBCOMPONENTS — filters bar, hotspot ranking, resolution, insights
+  src\App.css:948:   ============================================================================ */
+  src\App.css:949:
+> src\App.css:950:.analytics-filters-bar {
+  src\App.css:951:  display: flex;
+  src\App.css:952:  align-items: center;
+  src\App.css:953:  flex-wrap: wrap;
+  src\App.css:954:  gap: 8px;
+  src\App.css:955:  padding: 0 4px 4px;
+  src\App.css:956:  grid-column: 1 / -1;
+  src\App.css:957:}
+  src\App.css:958:
+> src\App.css:959:.analytics-filters-label {
+  src\App.css:960:  font-size: 11px;
+  src\App.css:961:  color: var(--text-muted);
+  src\App.css:962:  font-weight: 700;
+  src\App.css:963:  text-transform: uppercase;
+  src\App.css:964:  letter-spacing: 0.5px;
+  src\App.css:965:}
+  src\App.css:966:
+> src\App.css:967:.analytics-filter-chip {
+  src\App.css:968:  font-size: 11.5px;
+  src\App.css:969:  font-weight: 600;
+  src\App.css:970:  color: var(--text-primary);
+  src\App.css:971:  background: var(--surface-3);
+  src\App.css:972:  border: 1px solid var(--border);
+  src\App.css:973:  padding: 4px 10px;
+  src\App.css:974:  border-radius: 999px;
+  src\App.css:975:}
+  src\App.css:976:
+> src\App.css:977:.analytics-filter-chip--muted {
+  src\App.css:978:  color: var(--text-muted);
+  src\App.css:979:  font-weight: 500;
+  src\App.css:980:}
+  src\App.css:981:
+> src\App.css:982:.analytics-filters-count {
+  src\App.css:983:  margin-left: auto;
+  src\App.css:984:  font-size: 11px;
+  src\App.css:985:  color: var(--text-muted);
+  src\App.css:986:}
+  src\App.css:987:
+> src\App.css:988:.chart-panel-header {
+  src\App.css:989:  display: flex;
+  src\App.css:990:  align-items: baseline;
+  src\App.css:991:  justify-content: space-between;
+  src\App.css:992:  margin-bottom: var(--spacing-md);
+  src\App.css:993:  flex-wrap: wrap;
+  src\App.css:994:  gap: 4px;
+  src\App.css:995:}
+  src\App.css:996:
+> src\App.css:997:.chart-panel-header h4 {
+  src\App.css:998:  margin-bottom: 0;
+  src\App.css:999:}
+  src\App.css:1000:
+> src\App.css:1001:.chart-panel-subtitle {
+  src\App.css:1002:  font-size: 10.5px;
+  src\App.css:1003:  color: var(--text-muted);
+  src\App.css:1004:  font-weight: 500;
+  src\App.css:1005:  text-transform: none;
+  src\App.css:1006:  letter-spacing: 0;
+  src\App.css:1007:}
+  src\App.css:1008:
+  src\App.css:1009:.analytics-tooltip {
+  src\App.css:1010:  background: var(--surface-2);
+  src\App.css:1011:  border: 1px solid var(--border);
+> src\App.css:1029:.hotspot-rank-list {
+  src\App.css:1030:  display: flex;
+  src\App.css:1031:  flex-direction: column;
+  src\App.css:1032:  gap: 8px;
+  src\App.css:1033:  max-height: 220px;
+  src\App.css:1034:  overflow-y: auto;
+  src\App.css:1035:  padding-right: 2px;
+  src\App.css:1036:}
+  src\App.css:1037:
+> src\App.css:1038:.hotspot-rank-row {
+  src\App.css:1039:  display: flex;
+  src\App.css:1040:  align-items: center;
+  src\App.css:1041:  gap: 10px;
+  src\App.css:1042:}
+  src\App.css:1043:
+> src\App.css:1044:.hotspot-rank-badge {
+  src\App.css:1045:  width: 26px;
+  src\App.css:1046:  height: 26px;
+  src\App.css:1047:  border-radius: 50%;
+  src\App.css:1048:  display: flex;
+  src\App.css:1049:  align-items: center;
+  src\App.css:1050:  justify-content: center;
+  src\App.css:1051:  font-size: 12px;
+  src\App.css:1052:  font-weight: 800;
+  src\App.css:1053:  flex-shrink: 0;
+  src\App.css:1054:  background: var(--surface-3);
+> src\App.css:1058:.hotspot-rank-badge.rank-1 { background: linear-gradient(135deg, #D9A441, #B8860B); 
+color: #1a1200; }
+> src\App.css:1059:.hotspot-rank-badge.rank-2 { background: linear-gradient(135deg, #C7CEDA, #9AA5B8); 
+color: #1a1a1a; }
+> src\App.css:1060:.hotspot-rank-badge.rank-3 { background: linear-gradient(135deg, #CD7F32, #A85C22); 
+color: #fff; }
+  src\App.css:1061:
+> src\App.css:1062:.hotspot-rank-info {
+  src\App.css:1063:  flex: 1;
+  src\App.css:1064:  min-width: 0;
+  src\App.css:1065:}
+  src\App.css:1066:
+> src\App.css:1067:.hotspot-rank-name {
+  src\App.css:1068:  font-size: 12.5px;
+  src\App.css:1069:  font-weight: 600;
+  src\App.css:1070:  color: var(--text-primary);
+  src\App.css:1071:  white-space: nowrap;
+  src\App.css:1072:  overflow: hidden;
+  src\App.css:1073:  text-overflow: ellipsis;
+  src\App.css:1074:  margin-bottom: 3px;
+  src\App.css:1075:}
+  src\App.css:1076:
+> src\App.css:1077:.hotspot-rank-bar-track {
+  src\App.css:1078:  height: 6px;
+  src\App.css:1079:  border-radius: 3px;
+  src\App.css:1080:  background: var(--surface-3);
+  src\App.css:1081:  overflow: hidden;
+  src\App.css:1082:}
+  src\App.css:1083:
+> src\App.css:1084:.hotspot-rank-bar-fill {
+  src\App.css:1085:  height: 100%;
+  src\App.css:1086:  border-radius: 3px;
+  src\App.css:1087:  background: linear-gradient(90deg, var(--accent), var(--accent-hover));
+  src\App.css:1088:}
+  src\App.css:1089:
+> src\App.css:1090:.hotspot-rank-count {
+  src\App.css:1091:  font-size: 13px;
+  src\App.css:1092:  font-weight: 800;
+  src\App.css:1093:  color: var(--text-primary);
+  src\App.css:1094:  min-width: 26px;
+  src\App.css:1095:  text-align: right;
+  src\App.css:1096:  flex-shrink: 0;
+  src\App.css:1097:}
+  src\App.css:1098:
+  src\App.css:1099:.priority-pill {
+  src\App.css:1100:  font-size: 10px;
+> src\App.css:1133:.resolution-panel {
+  src\App.css:1134:  display: flex;
+  src\App.css:1135:  align-items: center;
+  src\App.css:1136:  gap: 18px;
+  src\App.css:1137:  height: 170px;
+  src\App.css:1138:}
+  src\App.css:1139:
+  src\App.css:1140:.resolution-donut-wrap {
+  src\App.css:1141:  position: relative;
+  src\App.css:1142:  width: 50%;
+  src\App.css:1143:  height: 140px;
+> src\App.css:1208:.insight-cards-list {
+  src\App.css:1209:  display: flex;
+  src\App.css:1210:  flex-direction: column;
+  src\App.css:1211:  gap: 10px;
+  src\App.css:1212:}
+  src\App.css:1213:
+> src\App.css:1214:.insight-card {
+  src\App.css:1215:  display: flex;
+  src\App.css:1216:  gap: 10px;
+  src\App.css:1217:  align-items: flex-start;
+  src\App.css:1218:  background: var(--surface);
+  src\App.css:1219:  border: 1px solid var(--border);
+  src\App.css:1220:  border-radius: var(--radius-md);
+  src\App.css:1221:  padding: 10px 12px;
+  src\App.css:1222:}
+  src\App.css:1223:
+> src\App.css:1224:.insight-card-icon {
+  src\App.css:1225:  font-size: 18px;
+  src\App.css:1226:  flex-shrink: 0;
+  src\App.css:1227:  line-height: 1.3;
+  src\App.css:1228:}
+  src\App.css:1229:
+> src\App.css:1230:.insight-card-title {
+  src\App.css:1231:  font-size: 11px;
+  src\App.css:1232:  font-weight: 700;
+  src\App.css:1233:  text-transform: uppercase;
+  src\App.css:1234:  letter-spacing: 0.4px;
+  src\App.css:1235:  color: var(--text-primary);
+  src\App.css:1236:  margin-bottom: 2px;
+  src\App.css:1237:}
+  src\App.css:1238:
+> src\App.css:1239:.insight-card-text {
+  src\App.css:1240:  font-size: 12.5px;
+  src\App.css:1241:  color: var(--text-secondary);
+  src\App.css:1242:  line-height: 1.5;
+  src\App.css:1243:}
+  src\App.css:1244:
+> src\App.css:1245:.insight-card-action {
+  src\App.css:1246:  margin-top: 6px;
+  src\App.css:1247:  font-size: 11px;
+  src\App.css:1248:  font-weight: 700;
+  src\App.css:1249:  color: var(--accent);
+  src\App.css:1250:  background: none;
+  src\App.css:1251:  border: none;
+  src\App.css:1252:  padding: 0;
+  src\App.css:1253:  cursor: pointer;
+  src\App.css:1254:}
+  src\App.css:1255:
+> src\App.css:1256:.insight-card-action:hover {
+  src\App.css:1257:  color: var(--accent-hover);
+  src\App.css:1258:  text-decoration: underline;
+  src\App.css:1259:}
+  src\App.css:1260:
+> src\App.css:1261:.chart-panel h4 {
+  src\App.css:1262:  font-size: 12px;
+  src\App.css:1263:  color: var(--text-primary);
+  src\App.css:1264:  text-transform: uppercase;
+  src\App.css:1265:  letter-spacing: 0.6px;
+  src\App.css:1266:  margin-bottom: var(--spacing-md);
+  src\App.css:1267:  font-weight: 700;
+  src\App.css:1268:  margin-top: 0;
+  src\App.css:1269:}
+  src\App.css:1270:
+  src\App.css:1271:@keyframes slideDown {
+> src\App.css:1484:.kpi-card:hover .kpi-icon {
+  src\App.css:1485:  opacity: 1;
+  src\App.css:1486:  transform: scale(1.1);
+  src\App.css:1487:}
+  src\App.css:1488:
+  src\App.css:1489:.kpi-trend {
+  src\App.css:1490:  font-size: 11px;
+  src\App.css:1491:  display: inline-flex;
+  src\App.css:1492:  align-items: center;
+  src\App.css:1493:  gap: var(--spacing-xs);
+  src\App.css:1494:  margin-top: var(--spacing-md);
+
+

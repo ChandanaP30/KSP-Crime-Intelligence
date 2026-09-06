@@ -1,0 +1,220 @@
+﻿function AnalyticsDrawer({ cases, kpis, selectedDistrict, districts, selectedStatus, selectedCrimeType, selectedDateRange, onNavigateTab }) {
+  const theme = useThemeColors();
+
+  const crimeTrend = useMemo(() => {
+    const now = new Date();
+    const months = [];
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      months.push({ key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, label: d.toLocaleString('en-US', { month: 'short', year: '2-digit' }), count: 0 });
+    }
+    const monthIndex = {};
+    months.forEach((m, i) => { monthIndex[m.key] = i; });
+
+    cases.forEach(c => {
+      if (!c.dateOfFIR) return;
+      const d = new Date(c.dateOfFIR);
+      if (isNaN(d.getTime())) return;
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      if (monthIndex[key] !== undefined) months[monthIndex[key]].count += 1;
+    });
+    return months;
+  }, [cases]);
+
+  const trendTotal = useMemo(() => crimeTrend.reduce((sum, m) => sum + m.count, 0), [crimeTrend]);
+
+  const topHotspots = useMemo(() => {
+    const counts = {};
+    cases.forEach(c => {
+      const name = c.unitName || 'Unknown Station';
+      counts[name] = (counts[name] || 0) + 1;
+    });
+    return Object.entries(counts)
+      .map(([unitName, count]) => ({ unitName, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+  }, [cases]);
+
+  const maxHotspotCount = topHotspots.length ? topHotspots[0].count : 0;
+
+  const resolution = useMemo(() => {
+    const total = cases.length;
+    const resolved = cases.filter(c => c.status === 'Chargesheeted' || c.status === 'Closed').length;
+    const pending = total - resolved;
+    const rate = total > 0 ? Math.round((resolved / total) * 100) : 0;
+    return { total, resolved, pending, rate };
+  }, [cases]);
+
+  const scopeLabel = selectedDistrict
+    ? (districts.find(d => d.rowId === selectedDistrict)?.districtName || 'the selected district')
+    : 'the state overall';
+
+  const insightCards = useMemo(() => {
+    if (cases.length === 0) return [];
+    const cards = [];
+
+    const typeCounts = {};
+    cases.forEach(c => { if (c.crimeType) typeCounts[c.crimeType] = (typeCounts[c.crimeType] || 0) + 1; });
+    const topType = Object.entries(typeCounts).sort((a, b) => b[1] - a[1])[0];
+    const topTypePct = topType ? Math.round((topType[1] / cases.length) * 100) : 0;
+    const topStation = topHotspots[0];
+
+    if (topType) {
+      cards.push({
+        icon: '📌',
+        title: 'Dominant Crime Type',
+        text: `${topType[0]} accounts for ${topTypePct}% of cases in ${scopeLabel} (${topType[1]} of ${cases.length}).`,
+      });
+    }
+    if (topStation) {
+      cards.push({
+        icon: '🚨',
+        title: 'Highest Case Volume',
+        text: `${topStation.unitName} has recorded the most cases in this view — ${topStation.count} case${topStation.count === 1 ? '' : 's'}.`,
+        action: onNavigateTab ? { label: 'View in Priority Actions', tab: 'priority' } : null,
+      });
+    }
+    cards.push({
+      icon: resolution.rate >= 50 ? '✅' : '⏳',
+      title: 'Resolution Status',
+      text: `${resolution.rate}% of cases in ${scopeLabel} have been resolved (chargesheeted or closed); ${resolution.pending} case${resolution.pending === 1 ? '' : 's'} remain under investigation.`,
+      action: onNavigateTab ? { label: 'Open Patrol Planner', tab: 'patrol' } : null,
+    });
+    return cards;
+  }, [cases, topHotspots, resolution, scopeLabel, onNavigateTab]);
+
+  const hasActiveFilters = selectedDistrict || selectedStatus || selectedCrimeType || selectedDateRange;
+
+  return (
+    <div className="analytics-drawer-grid">
+      <div className="analytics-filters-bar">
+        <span className="analytics-filters-label">Showing</span>
+        <span className="analytics-filter-chip">{selectedDistrict ? scopeLabel : 'All Districts'}</span>
+        {selectedCrimeType && <span className="analytics-filter-chip">{selectedCrimeType}</span>}
+        {selectedStatus && <span className="analytics-filter-chip">{selectedStatus}</span>}
+        {selectedDateRange && <span className="analytics-filter-chip">{formatDateRangeLabel(selectedDateRange)}</span>}
+        {!hasActiveFilters && <span className="analytics-filter-chip analytics-filter-chip--muted">No filters applied</span>}
+        <span className="analytics-filters-count">{cases.length} case{cases.length === 1 ? '' : 's'} in view</span>
+      </div>
+
+      <div className="chart-panel">
+        <div className="chart-panel-header">
+          <h4>📈 Crime Trend</h4>
+          <span className="chart-panel-subtitle">{trendTotal} cases over last 12 months</span>
+        </div>
+        <ResponsiveContainer width="100%" height={190}>
+          <BarChart data={crimeTrend} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke={theme.border} vertical={false} />
+            <XAxis dataKey="label" tick={{ fill: theme.textMuted, fontSize: 10 }} angle={-30} textAnchor="end" height={45} axisLine={{ stroke: theme.border }} tickLine={false} />
+            <YAxis tick={{ fill: theme.textMuted, fontSize: 10 }} allowDecimals={false} axisLine={false} tickLine={false} />
+            <Tooltip content={<AnalyticsTooltip unit="cases" />} cursor={{ fill: theme.accent, opacity: 0.08 }} />
+            <Bar dataKey="count" fill="var(--accent)" radius={[4, 4, 0, 0]} maxBarSize={28} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      <div className="chart-panel hotspot-rank-panel">
+        <div className="chart-panel-header">
+          <h4>🔥 Top Crime Hotspots</h4>
+          <span className="chart-panel-subtitle">Top {topHotspots.length} station{topHotspots.length === 1 ? '' : 's'} by volume</span>
+        </div>
+        {topHotspots.length === 0 ? (
+          <div className="text-muted" style={{ padding: 16, fontSize: 12 }}>No station data available for the current selection.</div>
+        ) : (
+          <div className="hotspot-rank-list">
+            {topHotspots.map((h, i) => {
+              const priority = h.count >= maxHotspotCount * 0.7 ? 'high' : h.count >= maxHotspotCount * 0.4 ? 'medium' : 'low';
+              return (
+                <div className="hotspot-rank-row" key={h.unitName}>
+                  <div className={`hotspot-rank-badge rank-${i + 1}`}>{i + 1}</div>
+                  <div className="hotspot-rank-info">
+                    <div className="hotspot-rank-name">{h.unitName}</div>
+                    <div className="hotspot-rank-bar-track">
+                      <div className="hotspot-rank-bar-fill" style={{ width: `${maxHotspotCount ? (h.count / maxHotspotCount) * 100 : 0}%` }} />
+                    </div>
+                  </div>
+                  <div className="hotspot-rank-count">{h.count}</div>
+                  <span className={`priority-pill priority-${priority}`}>{priority === 'high' ? 'High' : priority === 'medium' ? 'Med' : 'Low'}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {onNavigateTab && topHotspots.length > 0 && (
+          <button className="analytics-link-btn" onClick={() => onNavigateTab('patrol')}>View in Patrol Planner →</button>
+        )}
+      </div>
+
+      <div className="chart-panel">
+        <div className="chart-panel-header">
+          <h4>✅ Case Resolution Rate</h4>
+        </div>
+        <div className="resolution-panel">
+          <div className="resolution-donut-wrap">
+            <ResponsiveContainer width="100%" height={140}>
+              <PieChart>
+                <Pie
+                  data={[{ name: 'Resolved', value: resolution.resolved }, { name: 'Pending', value: resolution.pending }]}
+                  dataKey="value"
+                  nameKey="name"
+                  innerRadius={40}
+                  outerRadius={58}
+                  paddingAngle={2}
+                  startAngle={90}
+                  endAngle={-270}
+                >
+                  <Cell fill="var(--status-closed)" />
+                  <Cell fill="var(--status-investigation)" />
+                </Pie>
+                <Tooltip content={<AnalyticsTooltip unit="cases" />} />
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="resolution-donut-center">
+              <div className="resolution-donut-pct">{resolution.rate}%</div>
+              <div className="resolution-donut-caption">resolved</div>
+            </div>
+          </div>
+          <div className="resolution-legend">
+            <div className="resolution-legend-row">
+              <span className="legend-dot" style={{ background: 'var(--status-closed)' }} />
+              Resolved <strong>{resolution.resolved}</strong>
+            </div>
+            <div className="resolution-legend-row">
+              <span className="legend-dot" style={{ background: 'var(--status-investigation)' }} />
+              Pending <strong>{resolution.pending}</strong>
+            </div>
+            <div className="resolution-legend-total">Total: {resolution.total} cases</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="chart-panel insights-panel">
+        <div className="chart-panel-header">
+          <h4>🤖 AI Crime Insights</h4>
+        </div>
+        {insightCards.length === 0 ? (
+          <div className="text-muted" style={{ padding: 16, fontSize: 12 }}>No cases match the current filters, so no insight can be generated yet.</div>
+        ) : (
+          <div className="insight-cards-list">
+            {insightCards.map((c, i) => (
+              <div className="insight-card" key={i}>
+                <div className="insight-card-icon">{c.icon}</div>
+                <div className="insight-card-body">
+                  <div className="insight-card-title">{c.title}</div>
+                  <div className="insight-card-text">{c.text}</div>
+                  {c.action && (
+                    <button className="insight-card-action" onClick={() => onNavigateTab(c.action.tab)}>{c.action.label} →</button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+
+function App() {

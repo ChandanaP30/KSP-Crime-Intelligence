@@ -1,0 +1,20 @@
+﻿1100:                 <h1>{t.appTitle}</h1>
+1101:         <span className="mono top-bar-sub">{t.appSubtitle}</span>
+1102:         <nav className="top-bar-tabs">
+1103: <button
+1104:   className="lang-toggle-btn"
+1105:   onClick={() => setLang(prev => (prev === 'en' ? 'kn' : 'en'))}
+1106: >
+1107:    {t.langToggle}
+1108: </button>
+1109: <button className="lang-toggle-btn" onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}>
+1110:   {theme === 'dark' ? '☀ ' : '🌙'}
+1111: </button>
+1112: 
+1113:                                         {allowedTabs.includes('dashboard') && <button className={activeTab === 'dashboard' ? 'tab-active' : ''} onClick={() => setActiveTab('dashboard')}>{t.tabDashboard}</button>}
+1114: {allowedTabs.includes('priority') && <button className={activeTab === 'priority' ? 'tab-active' : ''} onClick={() => setActiveTab('priority')}>{t.tabPriority}</button>}
+1115:                     {allowedTabs.includes('network') && <button className={activeTab === 'network' ? 'tab-active' : ''} onClick={() => setActiveTab('network')}>{t.tabNetwork}</button>}
+1116:                     
+1117:                                         {allowedTabs.includes('knowledge') && <button className={activeTab === 'knowledge' ? 'tab-active' : ''} onClick={() => setActiveTab('knowledge')}>{t.tabKnowledge}</button>}
+1118:           
+1119:                    {allowedTabs.includes('patrol') && <button className={activeTab === 'patrol' ? 'tab-active' : ''} onClick={() => setActiveTab('patrol')}>{t.tabPatrol}</button>}

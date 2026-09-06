@@ -1,0 +1,437 @@
+﻿2747: function PriorityActionPanel({ functionsBase, onNavigateTab }) {
+2748:   const [data, setData] = useState(null);
+2749:   const [loading, setLoading] = useState(true);
+2750:   const [error, setError] = useState('');
+2751:   const [filterPriority, setFilterPriority] = useState('all');
+2752:   const [filterCategory, setFilterCategory] = useState('all');
+2753:   const [searchTerm, setSearchTerm] = useState('');
+2754:   const [sortBy, setSortBy] = useState('priority');
+2755:   const [selectedItem, setSelectedItem] = useState(null);
+2756:   const [aiAnswer, setAiAnswer] = useState(null);
+2757:   const [aiLoading, setAiLoading] = useState(false);
+2758:   const [flaggedCases, setFlaggedCases] = useState([]);
+2759:   const [flaggedLoading, setFlaggedLoading] = useState(true);
+2760:   const [resolvingId, setResolvingId] = useState(null);
+2761: 
+2762:   const loadFlaggedCases = async () => {
+2763:     try {
+2764:       setFlaggedLoading(true);
+2765:       const response = await fetch(`${functionsBase}/priority-action-function/?mode=flagged`);
+2766:       const result = await response.json();
+2767:       setFlaggedCases(result.flags || []);
+2768:     } catch (err) {
+2769:       console.error('Flagged cases error:', err);
+2770:     } finally {
+2771:       setFlaggedLoading(false);
+2772:     }
+2773:   };
+2774: 
+2775:   const resolveFlag = async (rowId) => {
+2776:     setResolvingId(rowId);
+2777:     try {
+2778:       await fetch(`${functionsBase}/priority-action-function/?mode=resolve_flag`, {
+2779:         method: 'POST',
+2780:         headers: { 'Content-Type': 'application/json' },
+2781:         body: JSON.stringify({ rowId, reviewedBy: 'Supervisor' })
+2782:       });
+2783:       setFlaggedCases(prev => prev.filter(f => f.id !== rowId));
+2784:     } catch (err) {
+2785:       console.error('Resolve flag error:', err);
+2786:     } finally {
+2787:       setResolvingId(null);
+2788:     }
+2789:   };
+2790: 
+2791:   const loadPriorityActions = async () => {
+2792:     try {
+2793:       setLoading(true);
+2794:       setError('');
+2795:       const response = await fetch(
+2796:         `${functionsBase}/priority-action-function/`
+2797:       );
+2798:       if (!response.ok) {
+2799:         throw new Error(`Server returned ${response.status}`);
+2800:       }
+2801:       const result = await response.json();
+2802:       setData(result);
+2803:     } catch (err) {
+2804:       console.error('Priority Action error:', err);
+2805:       setError(err.message || 'Unable to load priority actions.');
+2806:     } finally {
+2807:       setLoading(false);
+2808:     }
+2809:   };
+2810:   useEffect(() => {
+2811:     loadPriorityActions();
+2812:     loadFlaggedCases();
+2813:   }, [functionsBase]);
+2814: 
+2815:   const openDetails = (item) => {
+2816:     setSelectedItem(item);
+2817:     setAiAnswer(null);
+2818:   };
+2819: 
+2820:   const closeDetails = () => {
+2821:     setSelectedItem(null);
+2822:     setAiAnswer(null);
+2823:   };
+2824: 
+2825:   const askAiAboutItem = () => {
+2826:     if (!selectedItem) return;
+2827:     setAiLoading(true);
+2828:     setAiAnswer(null);
+2829: 
+2830:     const question = `A police Priority Action Center has flagged this item - use ONLY the facts given here, do not invent anything not stated:
+2831: Priority: ${selectedItem.priority}
+2832: Category: ${selectedItem.category}
+2833: Police Unit / Issue: ${selectedItem.title}
+2834: Details: ${selectedItem.detail}
+2835: District: ${selectedItem.district || 'Not specified'}
+2836: Related action type: ${selectedItem.linkType || 'Not specified'}
+2837: 
+2838: Based only on the above: why is this flagged at ${selectedItem.priority} priority, what should an officer review first, and what related data (cases, offenders, CCTV) is relevant here? Keep it factual and concise.`;
+2839: 
+2840:     fetch(`${functionsBase}/ask-ai-function/`, {
+2841:       method: 'POST',
+2842:       headers: { 'Content-Type': 'application/json' },
+2843:       body: JSON.stringify({ question })
+2844:     })
+2845:       .then(res => res.json())
+2846:       .then(result => {
+2847:         setAiAnswer(result.insight || result.answer || 'No response generated.');
+2848:         setAiLoading(false);
+2849:       })
+2850:       .catch(err => {
+2851:         console.error('Priority Ask AI error:', err);
+2852:         setAiAnswer('Unable to generate an answer right now.');
+2853:         setAiLoading(false);
+2854:       });
+2855:   };
+2856: 
+2857:   if (loading) {
+2858:     return (
+2859:       <div className="priority-tab-content">
+2860:         <div className="priority-loading">
+2861:           Loading priority actions...
+2862:         </div>
+2863:       </div>
+2864:     );
+2865:   }
+2866: 
+2867:   if (error) {
+2868:     return (
+2869:       <div className="priority-tab-content">
+2870:         <div className="priority-error">
+2871:           <strong>Unable to load Priority Action Center</strong>
+2872:           <p>{error}</p>
+2873: 
+2874:           <button onClick={loadPriorityActions}>
+2875:             Retry
+2876:           </button>
+2877:         </div>
+2878:       </div>
+2879:     );
+2880:   }
+2881: 
+2882:   const items = data?.items || [];
+2883:   const totalCount = data?.totalItems ?? items.length;
+2884: 
+2885:   const categories = [...new Set(items.map(i => i.category).filter(Boolean))].sort();
+2886: 
+2887:   const filteredItems = items
+2888:     .filter(item => filterPriority === 'all' || (item.priority || '').toLowerCase() === filterPriority)
+2889:     .filter(item => filterCategory === 'all' || item.category === filterCategory)
+2890:     .filter(item => {
+2891:       if (!searchTerm.trim()) return true;
+2892:       const q = searchTerm.toLowerCase();
+2893:       return (item.title || '').toLowerCase().includes(q)
+2894:         || (item.detail || '').toLowerCase().includes(q)
+2895:         || (item.district || '').toLowerCase().includes(q)
+2896:         || (item.category || '').toLowerCase().includes(q);
+2897:     });
+2898: 
+2899:   const sortedItems = [...filteredItems].sort((a, b) => {
+2900:     if (sortBy === 'priority') {
+2901:       return (PRIORITY_RANK[(b.priority || '').toLowerCase()] || 0) - (PRIORITY_RANK[(a.priority || '').toLowerCase()] || 0);
+2902:     }
+2903:     if (sortBy === 'category') {
+2904:       return (a.category || '').localeCompare(b.category || '');
+2905:     }
+2906:     if (sortBy === 'district') {
+2907:       return (a.district || '\uffff').localeCompare(b.district || '\uffff');
+2908:     }
+2909:     return 0;
+2910:   });
+2911: 
+2912:   const linkAction = selectedItem ? getPriorityLinkAction(selectedItem.linkType) : null;
+2913: 
+2914:   return (
+2915:     <div className="priority-tab-content">
+2916: 
+2917:       <div className="priority-header">
+2918:         <div>
+2919:           <h2>Priority Action Center</h2>
+2920:           <p>
+2921:             AI-assisted identification of cases and operational issues
+2922:             requiring attention.
+2923:           </p>
+2924:         </div>
+2925: 
+2926:         <button
+2927:           className="priority-refresh-btn"
+2928:           onClick={loadPriorityActions}
+2929:         >
+2930:           Refresh
+2931:         </button>
+2932:       </div>
+2933: 
+2934:       <div className="priority-summary">
+2935: 
+2936:         <div className="priority-summary-card">
+2937:           <span>Total Actions</span>
+2938:           <strong>{data?.totalItems ?? 0}</strong>
+2939:         </div>
+2940: 
+2941:         <div className="priority-summary-card critical">
+2942:           <span>ðŸ”´ Critical</span>
+2943:           <strong>{data?.criticalCount ?? 0}</strong>
+2944:         </div>
+2945: 
+2946:         <div className="priority-summary-card high">
+2947:           <span>ðŸŸ  High</span>
+2948:           <strong>{data?.highCount ?? 0}</strong>
+2949:         </div>
+2950: 
+2951:       </div>
+2952: 
+2953:       {items.length === 0 ? (
+2954:         <div className="priority-empty">
+2955:           <strong>No priority actions detected</strong>
+2956:           <p>
+2957:             The current data does not contain any items requiring
+2958:             immediate attention.
+2959:           </p>
+2960:         </div>
+2961:       ) : (
+2962:         <>
+2963:           <div className="priority-controls">
+2964:             <div className="priority-filter-pills">
+2965:               {['all', 'critical', 'high'].map(p => (
+2966:                 <button
+2967:                   key={p}
+2968:                   className={`priority-pill ${filterPriority === p ? 'active' : ''} priority-pill-${p}`}
+2969:                   onClick={() => setFilterPriority(p)}
+2970:                 >
+2971:                   {p === 'all' ? 'All' : p.charAt(0).toUpperCase() + p.slice(1)}
+2972:                 </button>
+2973:               ))}
+2974:             </div>
+2975: 
+2976:             <select
+2977:               className="priority-category-select"
+2978:               value={filterCategory}
+2979:               onChange={e => setFilterCategory(e.target.value)}
+2980:             >
+2981:               <option value="all">All Categories</option>
+2982:               {categories.map(c => <option key={c} value={c}>{c}</option>)}
+2983:             </select>
+2984: 
+2985:             <select
+2986:               className="priority-sort-select"
+2987:               value={sortBy}
+2988:               onChange={e => setSortBy(e.target.value)}
+2989:             >
+2990:               <option value="priority">Sort: Priority</option>
+2991:               <option value="category">Sort: Category</option>
+2992:               <option value="district">Sort: District</option>
+2993:             </select>
+2994: 
+2995:             <input
+2996:               className="priority-search-input"
+2997:               type="text"
+2998:               placeholder="Search..."
+2999:               value={searchTerm}
+3000:               onChange={e => setSearchTerm(e.target.value)}
+3001:             />
+3002:           </div>
+3003: 
+3004:           <div className="priority-count-line">
+3005:             Showing {sortedItems.length} of {totalCount}
+3006:           </div>
+3007: 
+3008:           <div className="priority-table-wrapper">
+3009:             <table className="priority-table">
+3010:               <thead>
+3011:                 <tr>
+3012:                   <th className="col-num">#</th>
+3013:                   <th className="col-priority">Priority</th>
+3014:                   <th className="col-category">Category</th>
+3015:                   <th className="col-title">Police Unit / Issue</th>
+3016:                   <th className="col-detail">Details</th>
+3017:                   <th className="col-district">District</th>
+3018:                   <th className="col-action">Action</th>
+3019:                 </tr>
+3020:               </thead>
+3021:               <tbody>
+3022:                 {sortedItems.map((item, index) => {
+3023:                   const priorityKey = (item.priority || 'medium').toLowerCase();
+3024:                   return (
+3025:                     <tr
+3026:                       key={`${item.category}-${item.title}-${index}`}
+3027:                       className={`priority-row priority-row-${priorityKey}`}
+3028:                     >
+3029:                       <td className="col-num">{index + 1}</td>
+3030:                       <td className="col-priority">
+3031:                         <span className={`priority-badge priority-badge-${priorityKey}`}>
+3032:                           {item.priority}
+3033:                         </span>
+3034:                       </td>
+3035:                       <td className="col-category">{item.category}</td>
+3036:                       <td className="col-title">{item.title}</td>
+3037:                       <td className="col-detail">{item.detail}</td>
+3038:                       <td className="col-district">{item.district || '\u2014'}</td>
+3039:                       <td className="col-action">
+3040:                         <button className="priority-view-details-btn" onClick={() => openDetails(item)}>
+3041:                           View Details
+3042:                         </button>
+3043:                       </td>
+3044:                     </tr>
+3045:                   );
+3046:                 })}
+3047:               </tbody>
+3048:             </table>
+3049:           </div>
+3050:         </>
+3051:       )}
+3052: 
+3053:       {/* Flagged Cases */}
+3054:       <div className="flagged-cases-section">
+3055:         <div className="flagged-cases-header">
+3056:           <div>
+3057:             <h3>Flagged Cases</h3>
+3058:             <p>Cases manually flagged for supervisor review.</p>
+3059:           </div>
+3060: 
+3061:           <span className="flagged-cases-count">
+3062:             {flaggedCases.length}
+3063:           </span>
+3064:         </div>
+3065: 
+3066:         {flaggedLoading ? (
+3067:           <div className="flagged-cases-empty">
+3068:             Loading flagged cases...
+3069:           </div>
+3070:         ) : flaggedCases.length === 0 ? (
+3071:           <div className="flagged-cases-empty">
+3072:             <strong>No flagged cases</strong>
+3073:             <p>
+3074:               There are currently no cases waiting for supervisor review.
+3075:             </p>
+3076:           </div>
+3077:         ) : (
+3078:           <div className="flagged-cases-list">
+3079:             {flaggedCases.map((flag) => (
+3080:               <div className="flagged-case-card" key={flag.id}>
+3081:                 <div className="flagged-case-main">
+3082:                   <div className="flagged-case-id">
+3083:                     {flag.caseId || 'Unknown Case'}
+3084:                   </div>
+3085: 
+3086:                   <div className="flagged-case-reason">
+3087:                     <span>Reason:</span> {flag.reason || 'No reason provided'}
+3088:                   </div>
+3089: 
+3090:                   <div className="flagged-case-officer">
+3091:                     Flagged by: <strong>{flag.flaggedBy || 'Unknown'}</strong>
+3092:                   </div>
+3093:                 </div>
+3094: 
+3095:                 <button
+3096:                   className="flagged-case-resolve-btn"
+3097:                   onClick={() => resolveFlag(flag.id)}
+3098:                   disabled={resolvingId === flag.id}
+3099:                 >
+3100:                   {resolvingId === flag.id ? 'Resolving...' : 'Resolve'}
+3101:                 </button>
+3102:               </div>
+3103:             ))}
+3104:           </div>
+3105:         )}
+3106:       </div>
+3107:       {data?.generatedAt && (
+3108:         <div className="priority-generated">
+3109:           Last updated:{' '}
+3110:           {new Date(data.generatedAt).toLocaleString()}
+3111:         </div>
+3112:       )}
+3113: 
+3114:       {selectedItem && (
+3115:         <div className="court-modal-overlay" onClick={closeDetails}>
+3116:           <div className="court-modal" onClick={e => e.stopPropagation()}>
+3117:             <div className="court-modal-header">
+3118:               <h4>ðŸš¨ Priority Action Details</h4>
+3119:               <button className="court-modal-close" onClick={closeDetails}>&times;</button>
+3120:             </div>
+3121:             <div className="court-modal-body">
+3122:               <span className={`priority-badge priority-badge-${(selectedItem.priority || 'medium').toLowerCase()}`}>
+3123:                 {selectedItem.priority}
+3124:               </span>
+3125: 
+3126:               <div className="priority-drawer-section">
+3127:                 <div className="offender-section-title">Category</div>
+3128:                 <div>{selectedItem.category}</div>
+3129:               </div>
+3130: 
+3131:               <div className="priority-drawer-section">
+3132:                 <div className="offender-section-title">Police Unit / Offender / Issue</div>
+3133:                 <div>{selectedItem.title}</div>
+3134:               </div>
+3135: 
+3136:               <div className="priority-drawer-section">
+3137:                 <div className="offender-section-title">District</div>
+3138:                 <div>{selectedItem.district || 'Not specified'}</div>
+3139:               </div>
+3140: 
+3141:               <div className="priority-drawer-section">
+3142:                 <div className="offender-section-title">Why This Item Was Flagged</div>
+3143:                 <div>{selectedItem.detail}</div>
+3144:               </div>
+3145: 
+3146:               {linkAction && (
+3147:                 <div className="priority-drawer-section">
+3148:                   <div className="offender-section-title">Recommended Next Action</div>
+3149:                   {linkAction.tab ? (
+3150:                     <button
+3151:                       className="priority-view-details-btn"
+3152:                       onClick={() => { onNavigateTab && onNavigateTab(linkAction.tab); closeDetails(); }}
+3153:                     >
+3154:                       {linkAction.label}
+3155:                     </button>
+3156:                   ) : (
+3157:                     <div>{linkAction.label}</div>
+3158:                   )}
+3159:                 </div>
+3160:               )}
+3161: 
+3162:               <div className="priority-drawer-section">
+3163:                 <div className="offender-section-title">Ask AI</div>
+3164:                 {!aiAnswer && !aiLoading && (
+3165:                   <button
+3166:                     onClick={askAiAboutItem}
+3167:                     style={{ width: '100%', padding: 8, background: 'var(--surface-2)', border: '1px solid var(--border)', color: 'var(--text-primary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
+3168:                   >
+3169:                     Ask AI about this item
+3170:                   </button>
+3171:                 )}
+3172:                 {aiLoading && <div className="text-muted">Analyzing...</div>}
+3173:                 {aiAnswer && <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>{aiAnswer}</div>}
+3174:               </div>
+3175:             </div>
+3176:           </div>
+3177:         </div>
+3178:       )}
+3179: 
+3180:     </div>
+3181:   );
+3182: }
+3183: 

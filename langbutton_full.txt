@@ -1,0 +1,20 @@
+﻿    <div className="app-shell">
+            <header className="top-bar">
+                <img src="/apple-touch-icon.png" alt="KSP Logo" className="ksp-header-logo" />
+                <h1>{t.appTitle}</h1>
+        <span className="mono top-bar-sub">{t.appSubtitle}</span>
+        <nav className="top-bar-tabs">
+<button
+  className="lang-toggle-btn"
+  onClick={() => setLang(prev => (prev === 'en' ? 'kn' : 'en'))}
+>
+   {t.langToggle}
+</button>
+<button className="lang-toggle-btn" onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}>
+  {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+</button>
+<div className="font-scale-controls">
+  <button
+    className={`font-scale-btn${fontScale === 'small' ? ' active' : ''}`}
+    onClick={() => setFontScale('small')}
+    title="Smaller text"
