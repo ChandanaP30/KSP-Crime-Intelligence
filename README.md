@@ -38,11 +38,13 @@ The dashboard uses role-based authentication and is accessible only to authorise
 
 
 
-\- \*\*Username:\*\* `Admin`
-
-\- \*\*Password:\*\* `Admin123`
-
-
+| Username | Password | Role |
+|----------|----------|------|
+| `Admin` | `Admin123` | Admin |
+| `Admin1` | `Admin1123` | Investigator |
+| `Admin2` | `Admin2123` | Analyst |
+| `Admin3` | `Admin3123` | Supervisor |
+| `Admin4` | `Admin4123` | Policymaker |
 
 
 
@@ -119,6 +121,8 @@ Steps for judges/evaluators to run this project locally:
 \- React 18 + Vite
 
 \- `react-leaflet` / `leaflet.markercluster` — interactive mapping
+
+\- `Esri-World-Imagery' — satellite map view
 
 \- `react-force-graph-2d` — criminal network graph visualization
 
