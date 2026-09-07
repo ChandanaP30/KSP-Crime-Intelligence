@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 
-const FUNCTIONS_BASE = 'https://ksp-fir-platform-60073928681.development.catalystserverless.in/server';
+const FUNCTIONS_BASE = import.meta.env.DEV
+  ? '/api'
+  : 'https://ksp-fir-platform-60073928681.development.catalystserverless.in/server';
 
 async function authenticate(username, password) {
   const res = await fetch(`${FUNCTIONS_BASE}/auth-function/`, {

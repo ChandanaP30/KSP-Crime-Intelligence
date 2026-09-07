@@ -29,7 +29,9 @@ const ROLE_CONFIG = {
   Supervisor: { tabs: ['dashboard', 'priority', 'network', 'knowledge', 'patrol'] },
   Policymaker: { tabs: ['dashboard', 'priority'] },
 };
-const FUNCTIONS_BASE = 'https://ksp-fir-platform-60073928681.development.catalystserverless.in/server';
+const FUNCTIONS_BASE = import.meta.env.DEV
+  ? '/api'
+  : 'https://ksp-fir-platform-60073928681.development.catalystserverless.in/server';
 
 const STATUS_COLORS = {
   'Under Investigation': '#D9A441',
@@ -530,7 +532,7 @@ function formatDateRangeLabel(v) {
   return map[v] || v;
 }
 
-function AnalyticsDrawer({ cases, kpis, selectedDistrict, districts, selectedStatus, selectedCrimeType, selectedDateRange, onNavigateTab }) {
+function AnalyticsDrawer({ cases, kpis, selectedDistrict, districts, selectedStatus, selectedCrimeType, selectedDateRange, onNavigateTab, t }) {
   const theme = useThemeColors();
 
   const crimeTrend = useMemo(() => {
@@ -558,7 +560,7 @@ function AnalyticsDrawer({ cases, kpis, selectedDistrict, districts, selectedSta
   const topHotspots = useMemo(() => {
     const counts = {};
     cases.forEach(c => {
-      const name = c.unitName || 'Unknown Station';
+      const name = c.unitName || t.anUnknownStation;
       counts[name] = (counts[name] || 0) + 1;
     });
     return Object.entries(counts)
@@ -578,8 +580,8 @@ function AnalyticsDrawer({ cases, kpis, selectedDistrict, districts, selectedSta
   }, [cases]);
 
   const scopeLabel = selectedDistrict
-    ? (districts.find(d => d.rowId === selectedDistrict)?.districtName || 'the selected district')
-    : 'the state overall';
+    ? (districts.find(d => d.rowId === selectedDistrict)?.districtName || t.anSelectedDistrictWord)
+    : t.anStateOverallWord;
 
   const insightCards = useMemo(() => {
     if (cases.length === 0) return [];
@@ -594,23 +596,23 @@ function AnalyticsDrawer({ cases, kpis, selectedDistrict, districts, selectedSta
     if (topType) {
       cards.push({
         icon: '📌',
-        title: 'Dominant Crime Type',
-        text: `${topType[0]} accounts for ${topTypePct}% of cases in ${scopeLabel} (${topType[1]} of ${cases.length}).`,
+        title: t.anDominantCrimeType,
+        text: t.anInsightDominantText.replace('{type}', topType[0]).replace('{pct}', topTypePct).replace('{scope}', scopeLabel).replace('{count}', topType[1]).replace('{total}', cases.length),
       });
     }
     if (topStation) {
       cards.push({
         icon: '🚨',
-        title: 'Highest Case Volume',
-        text: `${topStation.unitName} has recorded the most cases in this view — ${topStation.count} case${topStation.count === 1 ? '' : 's'}.`,
-        action: onNavigateTab ? { label: 'View in Priority Actions', tab: 'priority' } : null,
+        title: t.anHighestCaseVolume,
+        text: t.anInsightVolumeText.replace('{station}', topStation.unitName).replace('{count}', topStation.count).replace('{plural}', topStation.count === 1 ? t.anCaseSingular : t.anCasePlural),
+        action: onNavigateTab ? { label: t.anViewInPriorityActions, tab: 'priority' } : null,
       });
     }
     cards.push({
       icon: resolution.rate >= 50 ? '✅' : '⏳',
-      title: 'Resolution Status',
-      text: `${resolution.rate}% of cases in ${scopeLabel} have been resolved (chargesheeted or closed); ${resolution.pending} case${resolution.pending === 1 ? '' : 's'} remain under investigation.`,
-      action: onNavigateTab ? { label: 'Open Patrol Planner', tab: 'patrol' } : null,
+      title: t.anResolutionStatus,
+      text: t.anInsightResolutionText.replace('{rate}', resolution.rate).replace('{scope}', scopeLabel).replace('{pending}', resolution.pending).replace('{plural}', resolution.pending === 1 ? t.anCaseSingular : t.anCasePlural),
+      action: onNavigateTab ? { label: t.anOpenPatrolPlanner, tab: 'patrol' } : null,
     });
     return cards;
   }, [cases, topHotspots, resolution, scopeLabel, onNavigateTab]);
@@ -620,19 +622,19 @@ function AnalyticsDrawer({ cases, kpis, selectedDistrict, districts, selectedSta
   return (
     <div className="analytics-drawer-grid">
       <div className="analytics-filters-bar">
-        <span className="analytics-filters-label">Showing</span>
-        <span className="analytics-filter-chip">{selectedDistrict ? scopeLabel : 'All Districts'}</span>
+        <span className="analytics-filters-label">{t.anShowingWord}</span>
+        <span className="analytics-filter-chip">{selectedDistrict ? scopeLabel : t.filterAllDistricts}</span>
         {selectedCrimeType && <span className="analytics-filter-chip">{selectedCrimeType}</span>}
         {selectedStatus && <span className="analytics-filter-chip">{selectedStatus}</span>}
         {selectedDateRange && <span className="analytics-filter-chip">{formatDateRangeLabel(selectedDateRange)}</span>}
-        {!hasActiveFilters && <span className="analytics-filter-chip analytics-filter-chip--muted">No filters applied</span>}
-        <span className="analytics-filters-count">{cases.length} case{cases.length === 1 ? '' : 's'} in view</span>
+        {!hasActiveFilters && <span className="analytics-filter-chip analytics-filter-chip--muted">{t.anNoFiltersApplied}</span>}
+        <span className="analytics-filters-count">{cases.length} {cases.length === 1 ? t.anCaseSingular : t.anCasePlural} {t.anInViewSuffix}</span>
       </div>
 
       <div className="chart-panel">
         <div className="chart-panel-header">
-          <h4>📈 Crime Trend</h4>
-          <span className="chart-panel-subtitle">{trendTotal} cases over last 12 months</span>
+          <h4>📈 {t.chartCrimeTrend}</h4>
+          <span className="chart-panel-subtitle">{trendTotal} {t.anCasesOverLast12Months}</span>
         </div>
         <ResponsiveContainer width="100%" height={190}>
           <BarChart data={crimeTrend} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
@@ -647,11 +649,11 @@ function AnalyticsDrawer({ cases, kpis, selectedDistrict, districts, selectedSta
 
       <div className="chart-panel hotspot-rank-panel">
         <div className="chart-panel-header">
-          <h4>🔥 Top Crime Hotspots</h4>
-          <span className="chart-panel-subtitle">Top {topHotspots.length} station{topHotspots.length === 1 ? '' : 's'} by volume</span>
+          <h4>🔥 {t.anTopCrimeHotspotsTitle}</h4>
+          <span className="chart-panel-subtitle">{t.anTopWord} {topHotspots.length} {topHotspots.length === 1 ? t.anStationSingular : t.anStationPlural} {t.anByVolumeSuffix}</span>
         </div>
         {topHotspots.length === 0 ? (
-          <div className="text-muted" style={{ padding: 16, fontSize: 12 }}>No station data available for the current selection.</div>
+          <div className="text-muted" style={{ padding: 16, fontSize: 12 }}>{t.anNoStationData}</div>
         ) : (
           <div className="hotspot-rank-list">
             {topHotspots.map((h, i) => {
@@ -666,27 +668,27 @@ function AnalyticsDrawer({ cases, kpis, selectedDistrict, districts, selectedSta
                     </div>
                   </div>
                   <div className="hotspot-rank-count">{h.count}</div>
-                  <span className={`priority-pill priority-${priority}`}>{priority === 'high' ? 'High' : priority === 'medium' ? 'Med' : 'Low'}</span>
+                  <span className={`priority-pill priority-${priority}`}>{priority === 'high' ? t.anPriorityHighWord : priority === 'medium' ? t.anPriorityMedWord : t.anPriorityLowWord}</span>
                 </div>
               );
             })}
           </div>
         )}
         {onNavigateTab && topHotspots.length > 0 && (
-          <button className="analytics-link-btn" onClick={() => onNavigateTab('patrol')}>View in Patrol Planner →</button>
+          <button className="analytics-link-btn" onClick={() => onNavigateTab('patrol')}>{t.anViewInPatrolPlannerBtn} →</button>
         )}
       </div>
 
       <div className="chart-panel">
         <div className="chart-panel-header">
-          <h4>✅ Case Resolution Rate</h4>
+          <h4>✅ {t.anCaseResolutionRateTitle}</h4>
         </div>
         <div className="resolution-panel">
           <div className="resolution-donut-wrap">
             <ResponsiveContainer width="100%" height={140}>
               <PieChart>
                 <Pie
-                  data={[{ name: 'Resolved', value: resolution.resolved }, { name: 'Pending', value: resolution.pending }]}
+                  data={[{ name: t.anResolvedWord, value: resolution.resolved }, { name: t.anPendingWord, value: resolution.pending }]}
                   dataKey="value"
                   nameKey="name"
                   innerRadius={40}
@@ -703,29 +705,29 @@ function AnalyticsDrawer({ cases, kpis, selectedDistrict, districts, selectedSta
             </ResponsiveContainer>
             <div className="resolution-donut-center">
               <div className="resolution-donut-pct">{resolution.rate}%</div>
-              <div className="resolution-donut-caption">resolved</div>
+              <div className="resolution-donut-caption">{t.anResolvedCaption}</div>
             </div>
           </div>
           <div className="resolution-legend">
             <div className="resolution-legend-row">
               <span className="legend-dot" style={{ background: 'var(--status-closed)' }} />
-              Resolved <strong>{resolution.resolved}</strong>
+              {t.anResolvedWord} <strong>{resolution.resolved}</strong>
             </div>
             <div className="resolution-legend-row">
               <span className="legend-dot" style={{ background: 'var(--status-investigation)' }} />
-              Pending <strong>{resolution.pending}</strong>
+              {t.anPendingWord} <strong>{resolution.pending}</strong>
             </div>
-            <div className="resolution-legend-total">Total: {resolution.total} cases</div>
+            <div className="resolution-legend-total">{t.anTotalColonWord}: {resolution.total} {t.anCasePlural}</div>
           </div>
         </div>
       </div>
 
       <div className="chart-panel insights-panel">
         <div className="chart-panel-header">
-          <h4>🤖 AI Crime Insights</h4>
+          <h4>🤖 {t.anAiCrimeInsightsTitle}</h4>
         </div>
         {insightCards.length === 0 ? (
-          <div className="text-muted" style={{ padding: 16, fontSize: 12 }}>No cases match the current filters, so no insight can be generated yet.</div>
+          <div className="text-muted" style={{ padding: 16, fontSize: 12 }}>{t.anNoInsightYet}</div>
         ) : (
           <div className="insight-cards-list">
             {insightCards.map((c, i) => (
@@ -1004,7 +1006,7 @@ useEffect(() => {
  const startVoiceInput = () => {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
-    alert('Voice input is not supported in this browser. Try Chrome.');
+    alert(t.kbVoiceUnsupported);
     return;
   }
   const recognition = new SpeechRecognition();
@@ -1592,13 +1594,13 @@ if (!currentUser) {
               onClick={() => { setSearchMode('fir'); setFirSearchTerm(''); setSelectedPerson(null); setFocusCase(null); }}
               style={{ flex: 1, padding: '5px 8px', fontSize: 11, borderRadius: 6, border: '1px solid var(--border)', background: searchMode === 'fir' ? 'var(--accent)' : 'var(--surface-2)', color: searchMode === 'fir' ? '#fff' : 'var(--text-primary)', cursor: 'pointer' }}
             >
-              FIR Number
+              {t.dbSearchModeFir}
             </button>
             <button
               onClick={() => { setSearchMode('name'); setFirSearchTerm(''); setFocusCase(null); }}
               style={{ flex: 1, padding: '5px 8px', fontSize: 11, borderRadius: 6, border: '1px solid var(--border)', background: searchMode === 'name' ? 'var(--accent)' : 'var(--surface-2)', color: searchMode === 'name' ? '#fff' : 'var(--text-primary)', cursor: 'pointer' }}
             >
-              Name
+              {t.dbSearchModeName}
             </button>
           </div>
           <div style={{ position: 'relative' }}>
@@ -1683,18 +1685,18 @@ if (!currentUser) {
                                                           <label className="filter-label">{t.filterStatus}</label>
           <select value={selectedStatus} onChange={e => setSelectedStatus(e.target.value)}>
             <option value="">{t.filterAllStatuses}</option>
-            <option value="Under Investigation">Under Investigation</option>
-            <option value="Chargesheeted">Chargesheeted</option>
-            <option value="Closed">Closed</option>
+            <option value="Under Investigation">{t.kpiUnderInvestigation}</option>
+            <option value="Chargesheeted">{t.kpiChargesheeted}</option>
+            <option value="Closed">{t.kpiClosed}</option>
           </select>
-          <label className="filter-label">Date Range</label>
+          <label className="filter-label">{t.filterDateRange}</label>
           <select value={selectedDateRange} onChange={e => setSelectedDateRange(e.target.value)}>
-            <option value="">All Time</option>
-            <option value="7d">Last 7 Days</option>
-            <option value="30d">Last 30 Days</option>
-            <option value="90d">Last 90 Days</option>
-            <option value="6m">Last 6 Months</option>
-            <option value="1y">Last 1 Year</option>
+            <option value="">{t.dbDateRangeAllTime}</option>
+            <option value="7d">{t.dbDateRangeLast7}</option>
+            <option value="30d">{t.dbDateRangeLast30}</option>
+            <option value="90d">{t.dbDateRangeLast90}</option>
+            <option value="6m">{t.dbDateRangeLast6Months}</option>
+            <option value="1y">{t.dbDateRangeLast1Year}</option>
           </select>
 
                     <label className="filter-label">{t.filterCrimeType}</label>
@@ -1715,7 +1717,7 @@ if (!currentUser) {
           {focusUnitId && (
             <div className="focus-area-chip">
               <span>Showing: {focusAreaName || 'Selected area'}</span>
-              <button onClick={() => { setFocusUnitId(''); setFocusAreaName(''); }}>Clear</button>
+              <button onClick={() => { setFocusUnitId(''); setFocusAreaName(''); }}>{t.dbClearWord}</button>
             </div>
           )}
 
@@ -1730,9 +1732,9 @@ if (!currentUser) {
                 value={recommendationLimit}
                 onChange={e => setRecommendationLimit(e.target.value)}
               >
-                <option value="20">Top 20</option>
-                <option value="50">Top 50</option>
-                <option value="all">All ({cctvData?.totalRecommendationsAvailable ?? '...'})</option>
+                <option value="20">{t.dbTop20}</option>
+                <option value="50">{t.dbTop50}</option>
+                <option value="all">{t.dbAllWord} ({cctvData?.totalRecommendationsAvailable ?? '...'})</option>
               </select>
             )}
             <label className="toggle-label">
@@ -1792,7 +1794,7 @@ if (!currentUser) {
               boxShadow: '0 2px 8px rgba(0,0,0,0.4)'
             }}
           >
-            {mapView === 'dark' ? '🛰️ Satellite View' : '🗺️ Map View'}
+            {mapView === 'dark' ? '🛰️ ' + t.dbSatelliteView : '🗺️ ' + t.dbMapView}
           </button>
           {!loading && cases.length === 0 && (
             <div className="empty-state">
@@ -1835,7 +1837,7 @@ if (!currentUser) {
               setSelectedCrimeType('');
               setSelectedHotspot(null);
             }}
-            title="Clear all filters"
+            title={t.dbClearAllFiltersTitle}
             style={{
               position: 'absolute',
               top: 60,
@@ -1850,7 +1852,7 @@ if (!currentUser) {
               fontSize: 12,
               fontWeight: 600
             }}
-          >↺ Clear</button>
+          >↺ {t.dbClearWord}</button>
     <MapLegend showRecommendations={showRecommendations} showActiveCameras={showActiveCameras} t={t} />
       {selectedHotspot && (
         <div style={{ position: 'absolute', top: 16, right: 16, width: 300, background: '#111827', border: '1px solid rgba(217,164,65,0.3)', borderRadius: 10, padding: 16, zIndex: 1000, boxShadow: '0 12px 32px rgba(0,0,0,0.5)' }}>
@@ -2141,7 +2143,7 @@ if (!currentUser) {
         <button className="court-modal-close" onClick={() => setCourtHistoryModal(null)}>&times;</button>
       </div>
       <div className="court-modal-body">
-        {courtHistoryModal.loading && <div className="text-muted">Loading...</div>}
+        {courtHistoryModal.loading && <div className="text-muted">{t.kbLoading}</div>}
         {!courtHistoryModal.loading && courtHistoryModal.cases.length === 0 && (
           <div className="text-muted">No court records found for this case.</div>
         )}
@@ -2202,24 +2204,25 @@ if (!currentUser) {
           selectedCrimeType={selectedCrimeType}
           selectedDateRange={selectedDateRange}
           onNavigateTab={setActiveTab}
+          t={t}
         />
       )}
       </>
       )}
 
 {activeTab === 'priority' && (
-  <PriorityActionPanel functionsBase={FUNCTIONS_BASE} onNavigateTab={setActiveTab} currentUser={currentUser} onSelectOffenderInNetwork={setPendingOffenderSelection} />
+  <PriorityActionPanel functionsBase={FUNCTIONS_BASE} onNavigateTab={setActiveTab} currentUser={currentUser} onSelectOffenderInNetwork={setPendingOffenderSelection} t={t} />
 )}
 
 {activeTab === 'network' && (
         <div className="network-tab-content">
-          <NetworkGraphPanel functionsBase={FUNCTIONS_BASE} pendingOffenderId={pendingOffenderSelection} onConsumePendingOffender={() => setPendingOffenderSelection(null)} />
+          <NetworkGraphPanel functionsBase={FUNCTIONS_BASE} pendingOffenderId={pendingOffenderSelection} onConsumePendingOffender={() => setPendingOffenderSelection(null)} t={t} />
         </div>
       )}
 
       {activeTab === 'knowledge' && (
         <div className="kb-tab-content">
-          <KnowledgeBasePanel functionsBase={FUNCTIONS_BASE} lang={lang} />
+          <KnowledgeBasePanel functionsBase={FUNCTIONS_BASE} lang={lang} t={t} />
         </div>
       )}
      
@@ -2228,6 +2231,7 @@ if (!currentUser) {
           <PatrolRecommendationPanel
             functionsBase={FUNCTIONS_BASE}
             districts={districts}
+            t={t}
             initialDistrictId={selectedDistrict}
             onViewCases={(districtId, unitId, areaName) => {
               setSelectedDistrict(districtId);
@@ -2322,7 +2326,7 @@ function ResizableMiniMap({ r, priorityColor, nearbyCameras }) {
   );
 }
 
-function PatrolRecommendationPanel({ functionsBase, districts, initialDistrictId, onViewCases }) {
+function PatrolRecommendationPanel({ functionsBase, districts, initialDistrictId, onViewCases, t }) {
   const [selectedDistrict, setSelectedDistrict] = useState(initialDistrictId || '');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -2397,28 +2401,28 @@ function PatrolRecommendationPanel({ functionsBase, districts, initialDistrictId
   return (
     <div className="patrol-panel">
       <div className="patrol-panel-header">
-        <h3>AI Patrol Recommendation</h3>
+        <h3>{t.patrolTitle}</h3>
         <div className="patrol-panel-controls">
           <select value={selectedDistrict} onChange={e => setSelectedDistrict(e.target.value)}>
-            <option value="">All Districts</option>
+            <option value="">{t.patrolAllDistricts}</option>
             {(districts || []).map(d => (
               <option key={d.rowId} value={d.rowId}>{d.districtName}</option>
             ))}
           </select>
           <button className="patrol-generate-btn" onClick={fetchRecommendations} disabled={loading}>
-            {loading ? 'Generating...' : 'Generate Patrol Plan'}
+            {loading ? t.patrolGenerating : t.patrolGeneratePlan}
           </button>
         </div>
       </div>
 
-      {loading && <div className="patrol-panel-loading mono">Analyzing crime data and generating patrol recommendations...</div>}
+      {loading && <div className="patrol-panel-loading mono">{t.patrolAnalyzing}</div>}
 
       {!loading && data && (
         <>
           <div className="patrol-summary-strip">
-            <StatCard label="Total Hotspots" value={data.totalHotspots ?? 0} />
-            <StatCard label="High Priority" value={data.highPriorityCount ?? 0} />
-            <StatCard label="Low Priority" value={data.lowPriorityCount ?? 0} />
+            <StatCard label={t.patrolTotalHotspots} value={data.totalHotspots ?? 0} />
+            <StatCard label={t.patrolHighPriority} value={data.highPriorityCount ?? 0} />
+            <StatCard label={t.patrolLowPriority} value={data.lowPriorityCount ?? 0} />
           </div>
 
           <div className="patrol-cards-list">
@@ -2433,11 +2437,11 @@ function PatrolRecommendationPanel({ functionsBase, districts, initialDistrictId
                       <div className="patrol-card-v2-district mono">{r.district}</div>
                     </div>
                     <div className="patrol-card-v2-badges">
-                      {isPlanActive && <span className="patrol-plan-badge">PLAN ACTIVE</span>}
+                      {isPlanActive && <span className="patrol-plan-badge">{t.patrolPlanActive}</span>}
                       <span className={`patrol-priority-badge-v2 ${r.priority === 'High' ? 'priority-high' : 'priority-low'}`}>
-                        {r.priority === 'High' ? 'HIGH PRIORITY' : 'LOW PRIORITY'}
+                        {r.priority === 'High' ? t.patrolHighPriorityBadge : t.patrolLowPriorityBadge}
                       </span>
-                      <span className="patrol-risk-pill">Risk {r.riskScore}/100</span>
+                      <span className="patrol-risk-pill">{t.patrolRisk} {r.riskScore}/100</span>
                       <span className="patrol-expand-arrow">{isExpanded ? '▲' : '▼'}</span>
                     </div>
                   </div>
@@ -2449,96 +2453,96 @@ function PatrolRecommendationPanel({ functionsBase, districts, initialDistrictId
                   <div className="patrol-mini-cards">
                     <div className="patrol-mini-card">
                       <div className="patrol-mini-card-value">{r.nearbyCCTVCount}</div>
-                      <div className="patrol-mini-card-label">Cameras Assigned</div>
+                      <div className="patrol-mini-card-label">{t.patrolCamerasAssigned}</div>
                     </div>
                     <div className="patrol-mini-card">
                       <div className="patrol-mini-card-value">{r.nearbyCCTVCount}</div>
-                      <div className="patrol-mini-card-label">CCTV Coverage</div>
+                      <div className="patrol-mini-card-label">{t.patrolCctvCoverage}</div>
                     </div>
                     <div className="patrol-mini-card">
                       <div className="patrol-mini-card-value">{r.openCaseCount}</div>
-                      <div className="patrol-mini-card-label">Active Investigations</div>
+                      <div className="patrol-mini-card-label">{t.patrolActiveInvestigations}</div>
                     </div>
                     <div className="patrol-mini-card">
                       <div className="patrol-mini-card-value">{r.confidence}%</div>
-                      <div className="patrol-mini-card-label">AI Confidence</div>
+                      <div className="patrol-mini-card-label">{t.patrolAiConfidence}</div>
                     </div>
                   </div>
 
                   {isExpanded && (
                     <div className="patrol-detail-grid">
                       <div className="patrol-why-box">
-                        <div className="patrol-box-title">⚠ Why {r.priority} Priority?</div>
+                        <div className="patrol-box-title">⚠ {t.patrolWhyPriority.replace("{priority}", r.priority)}</div>
                         <ul className="patrol-why-list">
-                          <li>{r.recentCrimeCount} crime{r.recentCrimeCount === 1 ? '' : 's'} recorded in this area</li>
-                          <li>{r.openCaseCount} case{r.openCaseCount === 1 ? '' : 's'} still under investigation</li>
-                          <li>Dominant crime type: {r.dominantCrimeType}</li>
+                          <li>{r.recentCrimeCount} {r.recentCrimeCount === 1 ? t.patrolCrimesRecorded : t.patrolCrimesRecordedPlural}</li>
+                          <li>{r.openCaseCount} {r.openCaseCount === 1 ? t.patrolCasesInvestigation : t.patrolCasesInvestigationPlural}</li>
+                          <li>{t.patrolDominantCrimeType} {r.dominantCrimeType}</li>
                                                     <li>
                             {r.nearbyCCTVCount > 0
-                              ? `${r.nearbyCCTVCount} camera(s) assigned to this station (nearest active camera is ${r.nearestCameraKm} km away)`
-                              : `No cameras assigned to this station${r.nearestCameraKm !== null ? ` (nearest active camera is ${r.nearestCameraKm} km away)` : ''}`}
+                              ? `${r.nearbyCCTVCount} ${t.patrolCamerasAssignedToStation} (${t.patrolNearestActiveCamera} ${r.nearestCameraKm} km away)`
+                              : `${t.patrolNoCamerasAssigned}${r.nearestCameraKm !== null ? ` (${t.patrolNearestActiveCamera} ${r.nearestCameraKm} km away)` : ''}`}
                           </li>
-                          <li>Risk score {r.riskScore}/100, based on crime frequency and severity</li>
+                          <li>{t.patrolRiskScore} {r.riskScore}/100, {t.patrolBasedOnCrimeFrequency}</li>
                         </ul>
                       </div>
 
                       <div className="patrol-action-box">
-                        <div className="patrol-box-title">✅ Recommended Action</div>
+                        <div className="patrol-box-title">✅ {t.patrolRecommendedAction}</div>
                         <div className="patrol-action-stat">
-                          <span>Officers</span>
+                          <span>{t.patrolOfficers}</span>
                           <strong>{r.recommendedOfficers}</strong>
                         </div>
                         <div className="patrol-action-stat">
-                          <span>Patrol Time</span>
+                          <span>{t.patrolPatrolTime}</span>
                           <strong>{r.suggestedPatrolTime}</strong>
                         </div>
                         <div className="patrol-action-stat">
-                          <span>Focus Area</span>
+                          <span>{t.patrolFocusArea}</span>
                           <strong>{r.dominantCrimeType}</strong>
                         </div>
                         <div className="patrol-action-buttons">
-                          <button className="patrol-action-btn" onClick={() => {}}>View Hotspot</button>
+                          <button className="patrol-action-btn" onClick={() => {}}>{t.patrolViewHotspot}</button>
                           <button className="patrol-action-btn" onClick={() => handleViewCCTV(r)} disabled={camerasLoading}>
-                            {camerasLoading ? 'Loading...' : nearbyCameras ? 'Hide CCTV' : 'View CCTV'}
+                            {camerasLoading ? t.patrolLoading : nearbyCameras ? t.patrolHideCctv : t.patrolViewCctv}
                           </button>
                           <button
                             className="patrol-action-btn"
                             onClick={() => onViewCases && onViewCases(r.districtId, r.unitId, r.areaName)}
                             disabled={!onViewCases}
-                            title={!onViewCases ? 'Not available' : `View cases in ${r.areaName}`}
+                            title={!onViewCases ? t.patrolNotAvailable : `${t.patrolViewCases} in ${r.areaName}`}
                           >
-                            View Cases
+                            {t.patrolViewCases}
                           </button>
                           <button
                             className={`patrol-action-btn patrol-use-plan-btn ${isPlanActive ? 'active' : ''}`}
                             onClick={() => toggleUsePlan(r.unitId)}
                           >
-                            {isPlanActive ? '✓ Plan In Use' : 'Use Plan'}
+                            {isPlanActive ? `✓ ${t.patrolPlanInUse}` : t.patrolUsePlan}
                           </button>
                         </div>
                       </div>
 
                       <div className="patrol-hotspot-map-box">
-                        <div className="patrol-box-title">🗺 Hotspot Overview</div>
+                        <div className="patrol-box-title">🗺 {t.patrolHotspotOverview}</div>
                         {isFinite(r.latitude) && isFinite(r.longitude) ? (
                           <div className="patrol-mini-map-wrap">
                             <ResizableMiniMap r={r} priorityColor={priorityColor} nearbyCameras={nearbyCameras} />
                             <div className="patrol-mini-map-caption">
-                              Dashed circle: approximate patrol zone around the hotspot centroid, not a surveyed boundary.
-                              {nearbyCameras && ` Showing ${nearbyCameras.length} camera(s) assigned to this station.`}
+                              {t.patrolDashedCircle}
+                              {nearbyCameras && ` ${t.patrolShowing} ${nearbyCameras.length} ${t.patrolCamerasAssignedToStationSentence}`}
                             </div>
                           </div>
                         ) : (
-                          <div className="text-muted" style={{ fontSize: 12 }}>No coordinates available for this area.</div>
+                          <div className="text-muted" style={{ fontSize: 12 }}>{t.patrolNoCoordinates}</div>
                         )}
                       </div>
 
                       <div className="patrol-insight-box">
-                        <div className="patrol-box-title">💡 Patrol Insight</div>
+                        <div className="patrol-box-title">💡 {t.patrolInsight}</div>
                         <p>
-                          Patrol time is suggested as <strong>{r.suggestedPatrolTime}</strong> based on when {r.dominantCrimeType.toLowerCase()}
-                          {' '}incidents typically occur, a documented crime-pattern heuristic rather than a measured average of this
-                          area's actual incident timestamps (case records store a date only, not time-of-day).
+                          {t.patrolSuggestedTime} <strong>{r.suggestedPatrolTime}</strong> {t.patrolBasedOnWhen} {r.dominantCrimeType.toLowerCase()} {t.patrolIncidentsTypicallyOccur}, {t.patrolDocumentedHeuristic}
+
+
                         </p>
                       </div>
                     </div>
@@ -2550,7 +2554,7 @@ function PatrolRecommendationPanel({ functionsBase, districts, initialDistrictId
 
           {(!data.recommendations || data.recommendations.length === 0) && (
             <div className="patrol-panel-empty">
-              <p>No patrol recommendations for the selected filter.</p>
+              <p>{t.patrolNoRecommendations}</p>
             </div>
           )}
         </>
@@ -2582,26 +2586,26 @@ function MapLegend({ showRecommendations, showActiveCameras, t }) {
             <div className="map-legend-title">{t.legendTitle}</div>
 
       <div className="map-legend-section">
-        <div className="map-legend-section-label">Crime Cases</div>
-        <LegendRow color={STATUS_COLORS['Under Investigation']} label="Under Investigation" />
-        <LegendRow color={STATUS_COLORS['Chargesheeted']} label="Chargesheeted" />
-        <LegendRow color={STATUS_COLORS['Closed']} label="Closed" />
+        <div className="map-legend-section-label">{t.lgCrimeCases}</div>
+        <LegendRow color={STATUS_COLORS['Under Investigation']} label={t.kpiUnderInvestigation} />
+        <LegendRow color={STATUS_COLORS['Chargesheeted']} label={t.kpiChargesheeted} />
+        <LegendRow color={STATUS_COLORS['Closed']} label={t.kpiClosed} />
       </div>
 
       {showRecommendations && (
         <div className="map-legend-section">
-          <div className="map-legend-section-label">CCTV Recommendation Markers</div>
-          <LegendRow color="#A6231F" label="High Priority" shape="shield" />
-          <LegendRow color="#4A7FB5" label="Low Priority" shape="shield" />
+          <div className="map-legend-section-label">{t.lgCctvRecMarkers}</div>
+          <LegendRow color="#A6231F" label={t.lgHighPriority} shape="shield" />
+          <LegendRow color="#4A7FB5" label={t.lgLowPriority} shape="shield" />
         </div>
       )}
 
       {showActiveCameras && (
         <div className="map-legend-section">
-          <div className="map-legend-section-label">Existing CCTV</div>
+          <div className="map-legend-section-label">{t.lgExistingCctv}</div>
           <div className="map-legend-icon-row">
                        <span className="map-legend-icon-badge map-legend-icon-active" dangerouslySetInnerHTML={{ __html: '&#128247;' }} />
-            <span>Active camera</span>
+            <span>{t.lgActiveCamera}</span>
           </div>
         </div>
       )}
@@ -2697,7 +2701,7 @@ function OffenderMapLayer({
           .map(a => ({
             id: a.id,
             type: 'offender',
-            label: a.name || 'Unknown',
+            label: a.name || t.ngUnknown,
             aadhaar: a.aadhaar || null,
             riskScore: a.riskScore ?? 0,
             caseCount: a.caseCount ?? 0,
@@ -3068,7 +3072,8 @@ function CrossDistrictLinksTable({ graphData, selectedOffenderId }) {
   );
 }
 
-function OffenderMapView({ graphData, onViewHistory, externalSelectedNode, completeAssociates }) {  const offenderNodesWithCoords = graphData.nodes.filter(
+function OffenderMapView({ graphData, onViewHistory, externalSelectedNode, completeAssociates, t }) {
+  const offenderNodesWithCoords = graphData.nodes.filter(
     n => n.type === 'offender' && typeof n.centroidLat === 'number' && typeof n.centroidLon === 'number'
   );
   const [primaryNode, setPrimaryNode] = useState(null);
@@ -3184,14 +3189,14 @@ function OffenderMapView({ graphData, onViewHistory, externalSelectedNode, compl
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '2px 4px 6px', gap: 8, flexWrap: 'wrap' }}>
         {primaryNode && totalAssociateCount > 0 ? (
           <div style={{ fontSize: 11, color: '#8B96AA' }}>
-            Showing {mappedAssociateCount} of {totalAssociateCount} associates on the map
+            {t.ngShowingOfAssociates.replace('{mapped}', mappedAssociateCount).replace('{total}', totalAssociateCount)}
           </div>
         ) : <div />}
 
         <div style={{ display: 'flex', gap: 4 }}>
           {[
-            { key: 'direct', label: 'Direct Associates' },
-            { key: 'all', label: 'All Connections' }
+            { key: 'direct', label: t.ngDirectAssociates },
+            { key: 'all', label: t.ngAllConnections }
           ].map(opt => (
             <button
               key={opt.key}
@@ -3245,19 +3250,19 @@ function OffenderMapView({ graphData, onViewHistory, externalSelectedNode, compl
               <div style={{ fontSize: 13, fontWeight: 700, color: '#F0F3F8' }}>{primaryNode.label}</div>
               <button onClick={handleBackgroundClick} style={{ background: 'none', border: 'none', color: '#8B96AA', cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: 0 }}>&times;</button>
             </div>
-            <div style={{ fontSize: 11, color: '#D9A441', fontWeight: 600, marginTop: 2 }}>Risk {primaryNode.riskScore}/100</div>
+            <div style={{ fontSize: 11, color: '#D9A441', fontWeight: 600, marginTop: 2 }}>{t.ngRiskWord} {primaryNode.riskScore}/100</div>
             <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11.5 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: '#8B96AA' }}>Linked Cases</span>
+                <span style={{ color: '#8B96AA' }}>{t.ngLinkedCases}</span>
                 <span style={{ color: '#E8ECF3', fontWeight: 600 }}>{primaryNode.caseCount}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: '#8B96AA' }}>Associates</span>
+                <span style={{ color: '#8B96AA' }}>{t.ngAssociatesWord}</span>
                 <span style={{ color: '#E8ECF3', fontWeight: 600 }}>{primaryNode.associateCount}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: '#8B96AA' }}>Districts</span>
-                <span style={{ color: '#E8ECF3', fontWeight: 600, textAlign: 'right' }}>{(primaryNode.districts || []).join(', ') || 'Unknown'}</span>
+                <span style={{ color: '#8B96AA' }}>{t.ngDistrictsWord}</span>
+                <span style={{ color: '#E8ECF3', fontWeight: 600, textAlign: 'right' }}>{(primaryNode.districts || []).join(', ') || t.ngUnknown}</span>
               </div>
             </div>
             <button
@@ -3281,17 +3286,17 @@ function OffenderMapView({ graphData, onViewHistory, externalSelectedNode, compl
             </div>
             <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11.5 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: '#8B96AA' }}>Connection Strength</span>
-                <span style={{ color: '#E8ECF3', fontWeight: 600, textTransform: 'capitalize' }}>{associateEdge?.strength || 'Unknown'}</span>
+                <span style={{ color: '#8B96AA' }}>{t.ngAssociationStrength}</span>
+                <span style={{ color: '#E8ECF3', fontWeight: 600, textTransform: 'capitalize' }}>{associateEdge?.strength || t.ngUnknown}</span>
               </div>
               {associateEdge?.reason && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                  <span style={{ color: '#8B96AA' }}>Reason</span>
+                  <span style={{ color: '#8B96AA' }}>{t.ngReasonWord}</span>
                   <span style={{ color: '#E8ECF3', fontWeight: 600, textAlign: 'right' }}>{associateEdge.reason}</span>
                 </div>
               )}
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: '#8B96AA' }}>Linked Cases</span>
+                <span style={{ color: '#8B96AA' }}>{t.ngLinkedCases}</span>
                                 <span style={{ color: '#E8ECF3', fontWeight: 600 }}>{associateNode.caseCount}</span>
               </div>
             </div>
@@ -3308,16 +3313,16 @@ function OffenderMapView({ graphData, onViewHistory, externalSelectedNode, compl
 }
 const PRIORITY_RANK = { critical: 4, high: 3, medium: 2, low: 1 };
 
-function getPriorityLinkAction(linkType) {
+function getPriorityLinkAction(linkType, t) {
   const lt = (linkType || '').toLowerCase();
-  if (lt.includes('network')) return { label: 'Open in Criminal Network', tab: 'network' };
-  if (lt.includes('cctv')) return { label: 'Open CCTV Recommendations', tab: 'dashboard' };
-  if (lt.includes('patrol') || lt.includes('workload')) return { label: 'Open AI Patrol', tab: 'patrol' };
-  if (lt) return { label: `View: ${linkType}`, tab: null };
+  if (lt.includes('network')) return { label: t.paOpenInNetwork, tab: 'network' };
+  if (lt.includes('cctv')) return { label: t.paOpenCctvRecs, tab: 'dashboard' };
+  if (lt.includes('patrol') || lt.includes('workload')) return { label: t.paOpenAiPatrol, tab: 'patrol' };
+  if (lt) return { label: t.paViewColon + ' ' + linkType, tab: null };
   return null;
 }
 
-function PriorityActionPanel({ functionsBase, onNavigateTab, currentUser, onSelectOffenderInNetwork }) { 
+function PriorityActionPanel({ functionsBase, onNavigateTab, currentUser, onSelectOffenderInNetwork, t }) { 
  const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -3351,7 +3356,7 @@ function PriorityActionPanel({ functionsBase, onNavigateTab, currentUser, onSele
       await fetch(`${functionsBase}/priority-action-function/?mode=resolve_flag`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rowId, reviewedBy: currentUser?.fullName || currentUser?.username || 'Unknown Officer' })
+        body: JSON.stringify({ rowId, reviewedBy: currentUser?.fullName || currentUser?.username || t.paUnknownOfficer })
       });
       setFlaggedCases(prev => prev.filter(f => f.id !== rowId));
     } catch (err) {
@@ -3375,7 +3380,7 @@ function PriorityActionPanel({ functionsBase, onNavigateTab, currentUser, onSele
       setData(result);
     } catch (err) {
       console.error('Priority Action error:', err);
-      setError(err.message || 'Unable to load priority actions.');
+      setError(err.message || t.paUnableToLoad);
     } finally {
       setLoading(false);
     }
@@ -3417,12 +3422,12 @@ Based only on the above: why is this flagged at ${selectedItem.priority} priorit
     })
       .then(res => res.json())
       .then(result => {
-        setAiAnswer(result.insight || result.answer || 'No response generated.');
+        setAiAnswer(result.insight || result.answer || t.paNoResponseGenerated);
         setAiLoading(false);
       })
       .catch(err => {
         console.error('Priority Ask AI error:', err);
-        setAiAnswer('Unable to generate an answer right now.');
+        setAiAnswer(t.paUnableToGenerateAnswer);
         setAiLoading(false);
       });
   };
@@ -3431,7 +3436,7 @@ Based only on the above: why is this flagged at ${selectedItem.priority} priorit
     return (
       <div className="priority-tab-content">
         <div className="priority-loading">
-          Loading priority actions...
+          {t.paLoadingActions}
         </div>
       </div>
     );
@@ -3441,11 +3446,11 @@ Based only on the above: why is this flagged at ${selectedItem.priority} priorit
     return (
       <div className="priority-tab-content">
         <div className="priority-error">
-          <strong>Unable to load Priority Action Center</strong>
+          <strong>{t.paUnableToLoadCenter}</strong>
           <p>{error}</p>
 
           <button onClick={loadPriorityActions}>
-            Retry
+            {t.paRetry}
           </button>
         </div>
       </div>
@@ -3482,17 +3487,16 @@ Based only on the above: why is this flagged at ${selectedItem.priority} priorit
     return 0;
   });
 
-  const linkAction = selectedItem ? getPriorityLinkAction(selectedItem.linkType) : null;
+  const linkAction = selectedItem ? getPriorityLinkAction(selectedItem.linkType, t) : null;
 
   return (
     <div className="priority-tab-content">
 
       <div className="priority-header">
         <div>
-          <h2>Priority Action Center</h2>
+          <h2>{t.paTitle}</h2>
           <p>
-            AI-assisted identification of cases and operational issues
-            requiring attention.
+            {t.paSubtitle}
           </p>
         </div>
 
@@ -3500,25 +3504,25 @@ Based only on the above: why is this flagged at ${selectedItem.priority} priorit
           className="priority-refresh-btn"
           onClick={loadPriorityActions}
         >
-          Refresh
+          {t.paRefresh}
         </button>
       </div>
 
       <div className="priority-summary">
         <div className="priority-summary-card">
-          <span>Total Actions</span>
+          <span>{t.paTotalActions}</span>
           <strong>{data?.totalItems ?? 0}</strong>
         </div>
         <div className="priority-summary-card critical">
-          <span>🔴 Critical</span>
+          <span>🔴 {t.paCritical}</span>
           <strong>{data?.criticalCount ?? 0}</strong>
         </div>
         <div className="priority-summary-card high">
-          <span>🟠 High</span>
+          <span>🟠 {t.paHigh}</span>
           <strong>{data?.highCount ?? 0}</strong>
         </div>
         <div className="priority-summary-card">
-          <span>⚑ Flagged for Review</span>
+          <span>⚑ {t.paFlaggedForReview}</span>
           <strong>{flaggedCases.length}</strong>
         </div>
       </div>
@@ -3526,7 +3530,7 @@ Based only on the above: why is this flagged at ${selectedItem.priority} priorit
       {!flaggedLoading && flaggedCases.length > 0 && (
         <div style={{ margin: '16px 0', border: '1px solid var(--accent)', borderRadius: 8, padding: 14, background: 'var(--accent-soft)' }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)', marginBottom: 10 }}>
-            ⚑ Flagged Cases Awaiting Review ({flaggedCases.length})
+            ⚑ {t.paFlaggedCasesAwaitingReview} ({flaggedCases.length})
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {flaggedCases.map(f => (
@@ -3543,7 +3547,7 @@ Based only on the above: why is this flagged at ${selectedItem.priority} priorit
                   disabled={resolvingId === f.id}
                   style={{ flexShrink: 0, padding: '6px 12px', background: 'transparent', border: '1px solid #4CAF50', color: '#4CAF50', borderRadius: 6, fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}
                 >
-                  {resolvingId === f.id ? '...' : 'Mark Reviewed'}
+                  {resolvingId === f.id ? '...' : t.paMarkReviewed}
                 </button>
               </div>
             ))}
@@ -3553,10 +3557,9 @@ Based only on the above: why is this flagged at ${selectedItem.priority} priorit
 
       {items.length === 0 ? (
         <div className="priority-empty">
-          <strong>No priority actions detected</strong>
+          <strong>{t.paNoPriorityDetected}</strong>
           <p>
-            The current data does not contain any items requiring
-            immediate attention.
+            {t.paNoPriorityDetail}
           </p>
         </div>
       ) : (
@@ -3569,7 +3572,7 @@ Based only on the above: why is this flagged at ${selectedItem.priority} priorit
                   className={`priority-pill ${filterPriority === p ? 'active' : ''} priority-pill-${p}`}
                   onClick={() => setFilterPriority(p)}
                 >
-                  {p === 'all' ? 'All' : p.charAt(0).toUpperCase() + p.slice(1)}
+                  {p === 'all' ? t.dbAllWord : p === 'critical' ? t.paPriorityCritical : t.paPriorityHigh}
                 </button>
               ))}
             </div>
@@ -3579,7 +3582,7 @@ Based only on the above: why is this flagged at ${selectedItem.priority} priorit
               value={filterCategory}
               onChange={e => setFilterCategory(e.target.value)}
             >
-              <option value="all">All Categories</option>
+              <option value="all">{t.paAllCategories}</option>
               {categories.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
 
@@ -3588,22 +3591,22 @@ Based only on the above: why is this flagged at ${selectedItem.priority} priorit
               value={sortBy}
               onChange={e => setSortBy(e.target.value)}
             >
-              <option value="priority">Sort: Priority</option>
-              <option value="category">Sort: Category</option>
-              <option value="district">Sort: District</option>
+              <option value="priority">{t.paSortPriority}</option>
+              <option value="category">{t.paSortCategory}</option>
+              <option value="district">{t.paSortDistrict}</option>
             </select>
 
             <input
               className="priority-search-input"
               type="text"
-              placeholder="Search..."
+              placeholder={t.paSearchPlaceholder}
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
             />
           </div>
 
           <div className="priority-count-line">
-            Showing {sortedItems.length} of {totalCount}
+            {t.paShowingWord} {sortedItems.length} {t.paOfWord} {totalCount}
           </div>
 
           <div className="priority-table-wrapper">
@@ -3611,12 +3614,12 @@ Based only on the above: why is this flagged at ${selectedItem.priority} priorit
               <thead>
                 <tr>
                   <th className="col-num">#</th>
-                  <th className="col-priority">Priority</th>
-                  <th className="col-category">Category</th>
-                  <th className="col-title">Police Unit / Issue</th>
-                  <th className="col-detail">Details</th>
-                  <th className="col-district">District</th>
-                  <th className="col-action">Action</th>
+                  <th className="col-priority">{t.paColPriority}</th>
+                  <th className="col-category">{t.paCategory}</th>
+                  <th className="col-title">{t.paPoliceUnitIssue}</th>
+                  <th className="col-detail">{t.paDetails}</th>
+                  <th className="col-district">{t.filterDistrict}</th>
+                  <th className="col-action">{t.paAction}</th>
                 </tr>
               </thead>
               <tbody>
@@ -3639,7 +3642,7 @@ Based only on the above: why is this flagged at ${selectedItem.priority} priorit
                       <td className="col-district">{item.district || '\u2014'}</td>
                       <td className="col-action">
                         <button className="priority-view-details-btn" onClick={() => openDetails(item)}>
-                          View Details
+                          {t.paViewDetails}
                         </button>
                       </td>
                     </tr>
@@ -3655,8 +3658,8 @@ Based only on the above: why is this flagged at ${selectedItem.priority} priorit
       <div className="flagged-cases-section">
         <div className="flagged-cases-header">
           <div>
-            <h3>Flagged Cases</h3>
-            <p>Cases manually flagged for supervisor review.</p>
+            <h3>{t.paFlaggedCasesTitle}</h3>
+            <p>{t.paFlaggedCasesSubtitle}</p>
           </div>
 
           <span className="flagged-cases-count">
@@ -3666,13 +3669,13 @@ Based only on the above: why is this flagged at ${selectedItem.priority} priorit
 
         {flaggedLoading ? (
           <div className="flagged-cases-empty">
-            Loading flagged cases...
+            {t.paLoadingFlaggedCases}
           </div>
         ) : flaggedCases.length === 0 ? (
           <div className="flagged-cases-empty">
-            <strong>No flagged cases</strong>
+            <strong>{t.paNoFlaggedCases}</strong>
             <p>
-              There are currently no cases waiting for supervisor review.
+              {t.paNoFlaggedCasesDetail}
             </p>
           </div>
         ) : (
@@ -3681,15 +3684,15 @@ Based only on the above: why is this flagged at ${selectedItem.priority} priorit
               <div className="flagged-case-card" key={flag.id}>
                 <div className="flagged-case-main">
                   <div className="flagged-case-id">
-                    {flag.caseId || 'Unknown Case'}
+                    {flag.caseId || t.paUnknownCase}
                   </div>
 
                   <div className="flagged-case-reason">
-                    <span>Reason:</span> {flag.reason || 'No reason provided'}
+                    <span>{t.paReasonLabel}</span> {flag.reason || t.paNoReasonProvided}
                   </div>
 
                   <div className="flagged-case-officer">
-                    Flagged by: <strong>{flag.flaggedBy || 'Unknown'}</strong>
+                    {t.paFlaggedByWord}: <strong>{flag.flaggedBy || t.paUnknownWord}</strong>
                   </div>
                 </div>
 
@@ -3698,7 +3701,7 @@ Based only on the above: why is this flagged at ${selectedItem.priority} priorit
                   onClick={() => resolveFlag(flag.id)}
                   disabled={resolvingId === flag.id}
                 >
-                  {resolvingId === flag.id ? 'Resolving...' : 'Resolve'}
+                  {resolvingId === flag.id ? t.paResolvingWord : t.paResolveWord}
                 </button>
               </div>
             ))}
@@ -3707,7 +3710,7 @@ Based only on the above: why is this flagged at ${selectedItem.priority} priorit
       </div>
       {data?.generatedAt && (
         <div className="priority-generated">
-          Last updated:{' '}
+          {t.paLastUpdated}{' '}
           {new Date(data.generatedAt).toLocaleString()}
         </div>
       )}
@@ -3716,7 +3719,7 @@ Based only on the above: why is this flagged at ${selectedItem.priority} priorit
         <div className="court-modal-overlay" onClick={closeDetails}>
           <div className="court-modal" onClick={e => e.stopPropagation()}>
             <div className="court-modal-header">
-              <h4>🚨 Priority Action Details</h4>
+              <h4>🚨 {t.paDetailsModalTitle}</h4>
               <button className="court-modal-close" onClick={closeDetails}>&times;</button>
             </div>
             <div className="court-modal-body">
@@ -3725,28 +3728,28 @@ Based only on the above: why is this flagged at ${selectedItem.priority} priorit
               </span>
 
               <div className="priority-drawer-section">
-                <div className="offender-section-title">Category</div>
+                <div className="offender-section-title">{t.paCategory}</div>
                 <div>{selectedItem.category}</div>
               </div>
 
               <div className="priority-drawer-section">
-                <div className="offender-section-title">Police Unit / Offender / Issue</div>
+                <div className="offender-section-title">{t.paPoliceUnitOffenderIssue}</div>
                 <div>{selectedItem.title}</div>
               </div>
 
               <div className="priority-drawer-section">
-                <div className="offender-section-title">District</div>
-                <div>{selectedItem.district || 'Not specified'}</div>
+                <div className="offender-section-title">{t.filterDistrict}</div>
+                <div>{selectedItem.district || t.paNotSpecified}</div>
               </div>
 
               <div className="priority-drawer-section">
-                <div className="offender-section-title">Why This Item Was Flagged</div>
+                <div className="offender-section-title">{t.paWhyFlagged}</div>
                 <div>{selectedItem.detail}</div>
               </div>
 
               {linkAction && (
                 <div className="priority-drawer-section">
-                  <div className="offender-section-title">Recommended Next Action</div>
+                  <div className="offender-section-title">{t.paRecommendedNextAction}</div>
                   {linkAction.tab ? (
                     <button
                       className="priority-view-details-btn"
@@ -3767,16 +3770,16 @@ Based only on the above: why is this flagged at ${selectedItem.priority} priorit
               )}
 
               <div className="priority-drawer-section">
-                <div className="offender-section-title">Ask AI</div>
+                <div className="offender-section-title">{t.paAskAi}</div>
                 {!aiAnswer && !aiLoading && (
                   <button
                     onClick={askAiAboutItem}
                     style={{ width: '100%', padding: 8, background: 'var(--surface-2)', border: '1px solid var(--border)', color: 'var(--text-primary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
                   >
-                    Ask AI about this item
+                    {t.paAskAiAboutItem}
                   </button>
                 )}
-                {aiLoading && <div className="text-muted">Analyzing...</div>}
+                {aiLoading && <div className="text-muted">{t.paAnalyzingWord}</div>}
                 {aiAnswer && <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>{aiAnswer}</div>}
               </div>
             </div>
@@ -3788,7 +3791,7 @@ Based only on the above: why is this flagged at ${selectedItem.priority} priorit
   );
 }
 
-function NetworkGraphPanel({ functionsBase, pendingOffenderId, onConsumePendingOffender }) { 
+function NetworkGraphPanel({ functionsBase, pendingOffenderId, onConsumePendingOffender, t }) { 
  const [rawData, setRawData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedOffender, setSelectedOffender] = useState(null);
@@ -4028,7 +4031,7 @@ const connectedAssociates = useMemo(() => {
 
       return {
         id: otherId,
-        name: otherNode?.label || 'Unknown',
+        name: otherNode?.label || t.ngUnknown,
         riskScore: otherNode?.riskScore ?? null,
         caseCount: otherNode?.caseCount ?? null,
         strength: l.strength,
@@ -4095,7 +4098,7 @@ const connectedAssociates = useMemo(() => {
           const associateNode = {
             id: a.id,
             type: 'offender',
-            label: a.name || 'Unknown',
+            label: a.name || t.ngUnknown,
             aadhaar: a.aadhaar || null,
             riskScore: a.riskScore ?? 0,
             caseCount: a.caseCount ?? 0,
@@ -4471,25 +4474,25 @@ const fetchCourtHistory = () => {
     fetch(`${functionsBase}/network-graph-function/?offenderId=${encodeURIComponent(selectedOffender.aadhaar)}&mode=summary`)
       .then(res => res.json())
       .then(d => {
-        setAiSummary(d.summary || 'No summary available.');
+        setAiSummary(d.summary || t.ngNoSummaryAvailable);
         setAiSummaryLoading(false);
       })
       .catch(err => {
         console.error('AI summary error:', err);
-        setAiSummary('Unable to generate summary right now.');
+        setAiSummary(t.ngUnableToGenerateSummary);
         setAiSummaryLoading(false);
       });
   };
 
   if (loading) {
-    return <div className="network-panel-loading mono">Loading criminal network data...</div>;
+    return <div className="network-panel-loading mono">{t.ngLoadingNetworkData}</div>;
   }
 
   if (!rawData || offenderNodes.length === 0) {
     return (
       <div className="network-panel-empty">
-        <p>No repeat offenders detected in current data.</p>
-        <p className="text-muted">This view highlights individuals linked to 2 or more cases.</p>
+        <p>{t.ngNoRepeatOffenders}</p>
+        <p className="text-muted">{t.ngRepeatOffendersHint}</p>
       </div>
     );
   }
@@ -4522,14 +4525,14 @@ const fetchCourtHistory = () => {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, height: 'calc(100vh - 180px)', minHeight: 500 }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, flexShrink: 0 }}>
-        <StatCard label="Total Offenders" value={stats.totalOffenders} />
-        <StatCard label="Total Cases Linked" value={stats.totalCasesLinked} />
-        <StatCard label="Network Nodes" value={stats.networkNodes} />
-        <StatCard label="Total Connections" value={stats.networkEdges} />
-        <StatCard label="Average Risk Score" value={`${stats.avgRisk}/100`} />
-        <StatCard label="Repeat Offenders" value={stats.repeatOffenderCount} />
-        <StatCard label="High-Risk Offenders (80+)" value={stats.highRiskCount} />
-                <StatCard label="Cross-District Networks" value={stats.crossDistrictCount} />
+        <StatCard label={t.ngStatTotalOffenders} value={stats.totalOffenders} />
+        <StatCard label={t.ngStatTotalCasesLinked} value={stats.totalCasesLinked} />
+        <StatCard label={t.ngStatNetworkNodes} value={stats.networkNodes} />
+        <StatCard label={t.ngStatTotalConnections} value={stats.networkEdges} />
+        <StatCard label={t.ngStatAvgRiskScore} value={`${stats.avgRisk}/100`} />
+        <StatCard label={t.ngStatRepeatOffenders} value={stats.repeatOffenderCount} />
+        <StatCard label={t.ngStatHighRiskOffenders} value={stats.highRiskCount} />
+                <StatCard label={t.ngStatCrossDistrictNetworks} value={stats.crossDistrictCount} />
       </div>
 
               <div style={{ display: 'flex', gap: 8, flexShrink: 0, alignItems: 'center' }}>
@@ -4561,65 +4564,65 @@ const fetchCourtHistory = () => {
 
       <div style={{ display: 'flex', gap: 16, flex: 1, minHeight: 0 }}>
        <div style={{ width: filterWidth, flexShrink: 0, background: '#111827', border: '1px solid #232D42', borderRadius: 8, padding: 16, overflowY: 'auto' }}>
-          <h4 style={{ margin: '0 0 12px', color: '#E8ECF3', fontSize: 14 }}>Filters</h4>
+          <h4 style={{ margin: '0 0 12px', color: '#E8ECF3', fontSize: 14 }}>{t.filtersTitle}</h4>
 
-          <label style={{ fontSize: 11, color: '#8B96AA', display: 'block', marginBottom: 4 }}>District</label>
+          <label style={{ fontSize: 11, color: '#8B96AA', display: 'block', marginBottom: 4 }}>{t.filterDistrict}</label>
           <select
             style={{ width: '100%', marginBottom: 12, background: '#0F1523', color: '#E8ECF3', border: '1px solid #232D42', borderRadius: 4, padding: '6px 8px', fontSize: 12 }}
             value={districtFilter}
             onChange={e => setDistrictFilter(e.target.value)}
           >
-            <option value="">All Districts</option>
+            <option value="">{t.patrolAllDistricts}</option>
             {allDistricts.map(d => <option key={d} value={d}>{d}</option>)}
           </select>
 
-          <label style={{ fontSize: 11, color: '#8B96AA', display: 'block', marginBottom: 4 }}>Crime Type</label>
+          <label style={{ fontSize: 11, color: '#8B96AA', display: 'block', marginBottom: 4 }}>{t.filterCrimeType}</label>
           <select
             style={{ width: '100%', marginBottom: 12, background: '#0F1523', color: '#E8ECF3', border: '1px solid #232D42', borderRadius: 4, padding: '6px 8px', fontSize: 12 }}
             value={crimeTypeFilter}
             onChange={e => setCrimeTypeFilter(e.target.value)}
           >
-            <option value="">All Crime Types</option>
+            <option value="">{t.filterAllCrimeTypes}</option>
             {allCrimeTypes.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
 
-          <label style={{ fontSize: 11, color: '#8B96AA', display: 'block', marginBottom: 4 }}>Search Offender</label>
+          <label style={{ fontSize: 11, color: '#8B96AA', display: 'block', marginBottom: 4 }}>{t.ngSearchOffender}</label>
           <input
             style={{ width: '100%', marginBottom: 12, background: '#0F1523', color: '#E8ECF3', border: '1px solid #232D42', borderRadius: 4, padding: '6px 8px', fontSize: 12, boxSizing: 'border-box' }}
-            placeholder="Name..."
+            placeholder={t.ngNamePlaceholder}
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
           />
 
-          <label style={{ fontSize: 11, color: '#8B96AA', display: 'block', marginBottom: 4 }}>Year</label>
+          <label style={{ fontSize: 11, color: '#8B96AA', display: 'block', marginBottom: 4 }}>{t.ngYearLabel}</label>
           <select
             style={{ width: '100%', marginBottom: 12, background: '#0F1523', color: '#E8ECF3', border: '1px solid #232D42', borderRadius: 4, padding: '6px 8px', fontSize: 12 }}
             value={yearFilter}
             onChange={e => setYearFilter(e.target.value)}
           >
-            <option value="">All Years</option>
+            <option value="">{t.ngAllYears}</option>
             {allYears.map(y => <option key={y} value={y}>{y}</option>)}
           </select>
 
           <label style={{ fontSize: 12, color: '#C7CEDA', display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
             <input type="checkbox" checked={hideIsolated} onChange={e => setHideIsolated(e.target.checked)} />
-            Hide Isolated Nodes
+            {t.ngHideIsolatedNodes}
           </label>
 
           <label style={{ fontSize: 12, color: '#C7CEDA', display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
             <input type="checkbox" checked={showCaseNetwork} onChange={e => setShowCaseNetwork(e.target.checked)} />
-            Show Case Network
+            {t.ngShowCaseNetwork}
           </label>
 
           <div style={{ marginTop: 20, borderTop: '1px solid #232D42', paddingTop: 12 }}>
-            <h5 style={{ margin: '0 0 8px', color: '#8B96AA', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>Legend</h5>
-            <LegendRow color={RISK_HIGH} label="High Risk (80-100)" shape="circle" />
-            <LegendRow color={RISK_MED} label="Medium Risk (50-79)" shape="circle" />
-            <LegendRow color={RISK_LOW} label="Low Risk (<50)" shape="circle" />
-            {showCaseNetwork && <LegendRow color={CASE_NODE_COLOR} label="Case" shape="square" />}
-            <LegendRow color="#E08A3E" label="Strong Association" line />
-            <LegendRow color="rgba(74,127,181,0.8)" label="Medium Association" line />
-            <LegendRow color="#8B96AA" label="Weak Association" line dashed />
+            <h5 style={{ margin: '0 0 8px', color: '#8B96AA', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>{t.legendTitle}</h5>
+            <LegendRow color={RISK_HIGH} label={t.ngHighRisk80100} shape="circle" />
+            <LegendRow color={RISK_MED} label={t.ngMediumRisk5079} shape="circle" />
+            <LegendRow color={RISK_LOW} label={t.ngLowRiskUnder50} shape="circle" />
+            {showCaseNetwork && <LegendRow color={CASE_NODE_COLOR} label={t.ngCaseWord} shape="square" />}
+            <LegendRow color="#E08A3E" label={t.ngStrongAssociation} line />
+            <LegendRow color="rgba(74,127,181,0.8)" label={t.ngMediumAssociation} line />
+            <LegendRow color="#8B96AA" label={t.ngWeakAssociation} line dashed />
           </div>
         </div>
 <ResizeHandle
@@ -4728,19 +4731,19 @@ const fetchCourtHistory = () => {
                         <div style={{ fontSize: 13, fontWeight: 700, color: '#F0F3F8' }}>{quickInfoOffender.label}</div>
                         <button onClick={() => setQuickInfoOffender(null)} style={{ background: 'none', border: 'none', color: '#8B96AA', cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: 0 }}>&times;</button>
                       </div>
-                      <div style={{ fontSize: 11, color: '#D9A441', fontWeight: 600, marginTop: 2 }}>Risk {quickInfoOffender.riskScore}/100</div>
+                      <div style={{ fontSize: 11, color: '#D9A441', fontWeight: 600, marginTop: 2 }}>{t.ngRiskWord} {quickInfoOffender.riskScore}/100</div>
                       <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11.5 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                          <span style={{ color: '#8B96AA' }}>Linked Cases</span>
+                          <span style={{ color: '#8B96AA' }}>{t.ngLinkedCases}</span>
                           <span style={{ color: '#E8ECF3', fontWeight: 600 }}>{quickInfoOffender.caseCount}</span>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                          <span style={{ color: '#8B96AA' }}>Associates</span>
+                          <span style={{ color: '#8B96AA' }}>{t.ngAssociatesWord}</span>
                           <span style={{ color: '#E8ECF3', fontWeight: 600 }}>{quickInfoOffender.associateCount}</span>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                          <span style={{ color: '#8B96AA' }}>Districts</span>
-                          <span style={{ color: '#E8ECF3', fontWeight: 600, textAlign: 'right' }}>{(quickInfoOffender.districts || []).join(', ') || 'Unknown'}</span>
+                          <span style={{ color: '#8B96AA' }}>{t.ngDistrictsWord}</span>
+                          <span style={{ color: '#E8ECF3', fontWeight: 600, textAlign: 'right' }}>{(quickInfoOffender.districts || []).join(', ') || t.ngUnknown}</span>
                         </div>
                       </div>
                       <button
@@ -4862,6 +4865,7 @@ warmupTicks={20}
                                             onViewHistory={(node) => loadOffenderProfile(node.aadhaar)}
                       externalSelectedNode={quickInfoOffender}
                       completeAssociates={completeAssociates}
+                      t={t}
                     />
                   )}
               {!selectedOffender && graphDisplayLimit !== 'all' && graphData.nodes.filter(n => n.type === 'offender').length > graphDisplayLimit && (
@@ -4914,27 +4918,27 @@ warmupTicks={20}
           </div>
           <div className="risk-badge" style={{ background: `${getRiskColor(selectedOffender.riskScore || 0)}22`, color: getRiskColor(selectedOffender.riskScore || 0) }}>
             <div className="risk-badge-score">{selectedOffender.riskScore}</div>
-            <div className="risk-badge-label">Risk /100</div>
+            <div className="risk-badge-label">{t.ngRiskWord} /100</div>
           </div>
         </div>
 
-        <DetailRow label="Total Linked Cases" value={selectedOffender.caseCount} />
+        <DetailRow label={t.ngTotalLinkedCases} value={selectedOffender.caseCount} />
         <DetailRow
-          label="Known Associates"
+          label={t.ngKnownAssociates}
           value={associatesLoading ? '...' : connectedAssociates.length}
         />
-        <DetailRow label="Districts" value={(selectedOffender.districts || []).join(', ') || 'Unknown'} />
-        <DetailRow label="First Case" value={selectedOffender.firstCaseDate || 'Unknown'} />
-        <DetailRow label="Last Case" value={selectedOffender.lastCaseDate || 'Unknown'} />
+        <DetailRow label={t.ngDistrictsWord} value={(selectedOffender.districts || []).join(', ') || t.ngUnknown} />
+        <DetailRow label={t.ngFirstCase} value={selectedOffender.firstCaseDate || t.ngUnknown} />
+        <DetailRow label={t.ngLastCase} value={selectedOffender.lastCaseDate || t.ngUnknown} />
 
-        <div className="offender-section-title">Crime Type Breakdown</div>
+        <div className="offender-section-title">{t.ngCrimeTypeBreakdown}</div>
         {(selectedOffender.crimeTypeBreakdown || []).map(t => (
           <div key={t.crimeType} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#C7CEDA', padding: '3px 0' }}>
             <span>{t.crimeType}</span><span>{t.count}</span>
           </div>
         ))}
 
-        <div className="offender-section-title">Connected To ({connectedAssociates.length})</div>
+        <div className="offender-section-title">{t.ngConnectedTo} ({connectedAssociates.length})</div>
         {associatesLoading && <div className="court-empty-note">Loading associates...</div>}
         {!associatesLoading && connectedAssociates.length === 0 && <div className="court-empty-note">No known associates found for this offender.</div>}
                 {connectedAssociates.map(a => (
@@ -5007,11 +5011,11 @@ warmupTicks={20}
 
                 {relatedCasesFilter && (
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#1A2438', border: '1px solid #D9A441', borderRadius: 6, padding: '6px 10px', marginBottom: 8, fontSize: 11 }}>
-            <span style={{ color: '#E8ECF3' }}>Showing FIRs shared with <strong>{relatedCasesFilter.associateName}</strong></span>
-            <button onClick={() => setRelatedCasesFilter(null)} style={{ background: 'none', border: 'none', color: '#D9A441', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>Clear</button>
+            <span style={{ color: '#E8ECF3' }}>{t.ngShowingFIRsShared} <strong>{relatedCasesFilter.associateName}</strong></span>
+            <button onClick={() => setRelatedCasesFilter(null)} style={{ background: 'none', border: 'none', color: '#D9A441', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>{t.ngClearBtn}</button>
           </div>
         )}
-        <div className="offender-section-title">Linked Cases ({selectedOffenderCases.length})</div>
+        <div className="offender-section-title">{t.ngLinkedCasesSection} ({selectedOffenderCases.length})</div>
         {selectedOffenderCases.map(c => (
           <div key={c.id} className="linked-case-card">
             <div style={{ fontWeight: 600, color: '#E8ECF3' }}>{c.label}</div>
@@ -5089,7 +5093,7 @@ function formatFileSize(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function KnowledgeBasePanel({ functionsBase, lang }) {
+function KnowledgeBasePanel({ functionsBase, lang, t }) {
   const [documents, setDocuments] = useState([]);
   const [loadingDocs, setLoadingDocs] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -5106,7 +5110,7 @@ function KnowledgeBasePanel({ functionsBase, lang }) {
   const startKbVoiceInput = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      alert('Voice input is not supported in this browser. Try Chrome.');
+      alert(t.kbVoiceUnsupported);
       return;
     }
     const recognition = new SpeechRecognition();
@@ -5119,7 +5123,7 @@ function KnowledgeBasePanel({ functionsBase, lang }) {
     recognition.onerror = (event) => {
       setKbListening(false);
       console.error('KB speech recognition error:', event.error, event);
-      alert(`Voice input error: ${event.error}`);
+      alert(`${t.kbVoiceError}: ${event.error}`);
     };
     recognition.onresult = (event) => {
       const transcript = event.results[0][0].transcript;
@@ -5212,7 +5216,7 @@ function KnowledgeBasePanel({ functionsBase, lang }) {
       })
       .catch(err => {
         console.error('KB preview error:', err);
-        setPreviewDoc(prev => ({ ...prev, loading: false, error: 'Unable to load document preview.' }));
+        setPreviewDoc(prev => ({ ...prev, loading: false, error: t.kbUnablePreview }));
       });
   };
 
@@ -5234,7 +5238,7 @@ function KnowledgeBasePanel({ functionsBase, lang }) {
       })
       .catch(err => {
         console.error('KB query error:', err);
-        setAnswer({ answer: 'Something went wrong. Please try again.', groundedInKB: false, citations: [] });
+        setAnswer({ answer: t.kbSomethingWentWrong, groundedInKB: false, citations: [] });
         setAsking(false);
       });
   };
@@ -5257,9 +5261,9 @@ function KnowledgeBasePanel({ functionsBase, lang }) {
             </div>
             <div className="court-modal-body">
               <div className="court-empty-note" style={{ marginBottom: 12 }}>
-                Showing extracted/indexed text, not the original file's layout or formatting.
+                {t.kbPreviewExtracted}
               </div>
-              {previewDoc.loading && <div className="text-muted">Loading preview...</div>}
+              {previewDoc.loading && <div className="text-muted">{t.kbLoadingPreview}</div>}
               {previewDoc.error && <div className="text-muted">{previewDoc.error}</div>}
               {!previewDoc.loading && !previewDoc.error && previewDoc.sections.map((s, i) => (
                 <div key={i} style={{ marginBottom: 14 }}>
@@ -5278,8 +5282,8 @@ function KnowledgeBasePanel({ functionsBase, lang }) {
           <div className="kb-card-header">
             <span className="kb-card-icon">{'\u{1f4c1}'}</span>
             <div>
-              <h3>Upload Police Documents</h3>
-              <p className="kb-subtext">SOPs, IPC/BNS sections, circulars, investigation manuals, cybercrime guidelines, and departmental policies.</p>
+              <h3>{t.kbUploadTitle}</h3>
+              <p className="kb-subtext">{t.kbUploadSubtitle}</p>
             </div>
           </div>
 
@@ -5293,19 +5297,19 @@ function KnowledgeBasePanel({ functionsBase, lang }) {
           />
           <button className="kb-upload-btn-v2" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
             <span>{'\u{1f4c1}'}</span>
-            {uploading ? 'Uploading...' : 'Upload Documents'}
+            {uploading ? t.kbUploading : t.kbUploadDocuments}
           </button>
-          <div className="kb-format-hint">Supported formats: PDF, DOCX, TXT</div>
+          <div className="kb-format-hint">{t.kbFormatHint}</div>
           {uploadError && <div className="kb-upload-error">{uploadError}</div>}
 
           <div className="kb-doc-list-v2">
             <div className="kb-doc-list-header-v2">
-              <span>Uploaded Documents</span>
-              <span className="kb-doc-count-v2">{documents.length} indexed</span>
+              <span>{t.kbUploadedDocuments}</span>
+              <span className="kb-doc-count-v2">{documents.length} {t.kbIndexed}</span>
             </div>
-            {loadingDocs && <div className="kb-doc-loading">Loading...</div>}
+            {loadingDocs && <div className="kb-doc-loading">{t.kbLoading}</div>}
             {!loadingDocs && documents.length === 0 && (
-              <div className="kb-doc-empty">No documents uploaded yet. Upload an SOP, manual, or circular to get started.</div>
+              <div className="kb-doc-empty">{t.kbNoDocuments}</div>
             )}
             <div className="kb-doc-scroll">
               {documents.map(doc => (
@@ -5319,17 +5323,17 @@ function KnowledgeBasePanel({ functionsBase, lang }) {
                       <span className="kb-doc-type-chip">{doc.fileType.toUpperCase()}</span>
                       <span>{formatFileSize(doc.fileSizeBytes)}</span>
                       <span>{new Date(doc.uploadedDate).toLocaleDateString()}</span>
-                      <span className="kb-doc-indexed">&#10003; Indexed ({doc.chunkCount})</span>
+                      <span className="kb-doc-indexed">&#10003; {t.kbIndexed} ({doc.chunkCount})</span>
                     </div>
                   </div>
                   <button
                     onClick={() => openPreview(doc)}
-                    title="Preview extracted text"
+                    title={t.kbPreviewTitle}
                     style={{ background: 'var(--surface-3)', border: '1px solid var(--border)', color: 'var(--text-primary)', borderRadius: 6, width: 30, height: 30, cursor: 'pointer', marginRight: 6 }}
                   >
                     {'\u{1f441}\u{fe0f}'}
                   </button>
-                  <button className="kb-doc-delete-v2" onClick={() => handleDelete(doc.id)} title="Delete document">
+                  <button className="kb-doc-delete-v2" onClick={() => handleDelete(doc.id)} title={t.kbDeleteDocument}>
                     {'\u{1f5d1}'}
                   </button>
                 </div>
@@ -5343,13 +5347,13 @@ function KnowledgeBasePanel({ functionsBase, lang }) {
           <div className="kb-card-header">
             <span className="kb-card-icon">{'\u{1f4da}'}</span>
             <div>
-              <h3>Ask the Knowledge Base</h3>
-              <p className="kb-subtext">Answers come only from your uploaded documents, not general knowledge. Supports English and Kannada.</p>
+              <h3>{t.kbAskTitle}</h3>
+              <p className="kb-subtext">{t.kbAskSubtitle}</p>
             </div>
           </div>
 
           <div className="kb-example-prompts-v2">
-            {KB_EXAMPLE_PROMPTS.map((p, i) => (
+            {[t.kbPrompt1, t.kbPrompt2, t.kbPrompt3, t.kbPrompt4].map((p, i) => (
               <button key={i} className="kb-example-chip-v2" onClick={() => { setQuestion(p); handleAsk(p); }}>{p}</button>
             ))}
           </div>
@@ -5357,7 +5361,7 @@ function KnowledgeBasePanel({ functionsBase, lang }) {
           <div className="kb-query-input-row-v2">
             <textarea
               className="kb-query-input-v2"
-              placeholder="Ask a question about your uploaded documents..."
+              placeholder={t.kbQuestionPlaceholder}
               value={question}
               onChange={e => setQuestion(e.target.value)}
               rows={3}
@@ -5366,13 +5370,13 @@ function KnowledgeBasePanel({ functionsBase, lang }) {
               <button
                 className={`kb-mic-btn-v2 ${kbListening ? 'mic-active' : ''}`}
                 type="button"
-                title={kbListening ? 'Listening...' : 'Voice input'}
+                title={kbListening ? t.kbListening : t.kbVoiceInput}
                 onClick={kbListening ? stopKbVoiceInput : startKbVoiceInput}
               >
                 {kbListening ? '\u{1f534}' : '\u{1f3a4}'}
               </button>
               <button className="kb-query-submit-v2" onClick={() => handleAsk()} disabled={asking || !question.trim()}>
-                {asking ? 'Searching...' : 'Ask'}
+                {asking ? t.kbSearching : t.kbAsk}
               </button>
             </div>
           </div>
@@ -5383,16 +5387,16 @@ function KnowledgeBasePanel({ functionsBase, lang }) {
                 Ask a question above, or tap a suggested question to get started.
               </div>
             )}
-            {asking && <div className="kb-doc-loading">Searching documents...</div>}
+            {asking && <div className="kb-doc-loading">{t.kbSearchingDocuments}</div>}
             {answer && (
               <div className="kb-answer-card-v2">
                 {answer.groundedInKB && (
-                  <div className="kb-grounded-badge-v2"><span>{'\u{1f4da}'}</span> Answer generated from Police Knowledge Base</div>
+                  <div className="kb-grounded-badge-v2"><span>{'\u{1f4da}'}</span> {t.kbAnswerFromKb}</div>
                 )}
                 <div className="kb-answer-text-v2">{answer.answer}</div>
                 {answer.citations && answer.citations.length > 0 && (
                   <div className="kb-citations-v2">
-                    <div className="kb-citations-label-v2">Sources</div>
+                    <div className="kb-citations-label-v2">{t.kbSources}</div>
                     {answer.citations.map((c, i) => (
                       <div className="kb-citation-item-v2" key={i}>{c.documentName} &middot; {c.source}</div>
                     ))}
