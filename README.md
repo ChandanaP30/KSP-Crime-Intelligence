@@ -213,9 +213,3 @@ This platform runs on synthetic demonstration data (cases, CCTV camera locations
 
 
 
-\## License
-
-
-
-Internal / hackathon submission — not licensed for external distribution.
-
