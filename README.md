@@ -29,25 +29,6 @@ An AI-assisted crime intelligence dashboard built for the Karnataka State Police
 \- \*\*PDF export\*\* — export AI conversation history to a formatted PDF.
 
 
-
-\## Demo Login
-
-
-
-The dashboard uses role-based authentication and is accessible only to authorised users — there is no public sign-up. Judges/evaluators should log in using the demo credentials below.
-
-
-
-| Username | Password | Role |
-|----------|----------|------|
-| `Admin` | `Admin123` | Admin |
-| `Admin1` | `Admin1123` | Investigator |
-| `Admin2` | `Admin2123` | Analyst |
-| `Admin3` | `Admin3123` | Supervisor |
-| `Admin4` | `Admin4123` | Policymaker |
-
-
-
 \## Setup and Execution
 
 
